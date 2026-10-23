@@ -1,12 +1,13 @@
 {
   "name": "oxherd",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "oxherd - 移动端流体物理动效值班打卡应用",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc && vite build",
+    "version:bump": "node scripts/bump-version.js",
     "preview": "vite preview"
   },
   "dependencies": {

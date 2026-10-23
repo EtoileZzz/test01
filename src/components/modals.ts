@@ -1,6 +1,6 @@
 import { DutyStorage } from '../storage/db';
 import { NativeBridgeService } from '../services/nativeBridge';
-import type { DutyTask, UserSettings, DutyPost, DutyItem } from '../models/types';
+import { APP_VERSION, APP_BUILD, type DutyTask, type UserSettings, type DutyPost, type DutyItem } from '../models/types';
 
 export class ModalManager {
   // ── 通用创建与销毁模态框 ──────────────────────────────────────
@@ -575,6 +575,12 @@ export class ModalManager {
             直达设置 ↗
           </button>
         </div>
+      </div>
+
+      <!-- 版本信息与发布声明 -->
+      <div style="text-align:center; padding:18px 0 8px; font-size:0.75rem; color:var(--text-muted); line-height:1.6;">
+        <div style="font-weight:700; color:var(--text-main); font-size:0.8125rem;">oxherd 巡更值班助手</div>
+        <div>当前版本：v${APP_VERSION} (Build ${APP_BUILD})</div>
       </div>
     `;
 

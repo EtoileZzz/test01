@@ -113,3 +113,7 @@ export interface DutyArchive {
   zipBlob?: Blob;
   summaryText: string;
 }
+
+export const APP_VERSION = '1.0.1';
+export const APP_BUILD = 2;
+
