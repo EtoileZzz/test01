@@ -24,7 +24,6 @@ class OxherdApp {
     const settings = DutyStorage.getSettings();
     this.applyTheme(settings.theme);
 
-    // 监听系统深浅色广播
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
       const current = DutyStorage.getSettings();
       if (current.theme === 'system') {
@@ -42,21 +41,18 @@ class OxherdApp {
     document.documentElement.setAttribute('data-theme', resolved);
   }
 
-  // ── 任务初始化 ──────────────────────────────────────────────
+  // ── 任务初始化（纯净空白初始态，无任何预设） ────────────────────
   private initTask(): void {
     let task = DutyStorage.getCurrentTask();
     if (!task) {
-      // 首次加载或已归档后，自动从示范模板“图书馆常规值班巡视”新建任务
-      const templates = DutyStorage.getTemplates();
-      const defaultTpl = templates[0] || DutyStorage.createTaskFromTemplate('tpl_library');
-      task = DutyStorage.createTaskFromTemplate(defaultTpl.id);
+      task = DutyStorage.createEmptyTask('值班巡检');
     }
     this.currentTask = task;
   }
 
   // ── 全局事件绑定 ────────────────────────────────────────────
   private bindGlobalEvents(): void {
-    // 1. 重点需求：岗位在设置中切换
+    // 1. 重点需求：岗位在设置中切换与条目排列管理
     const postSwitchBar = document.getElementById('post-switch-bar');
     postSwitchBar?.addEventListener('click', () => {
       if (!this.currentTask) return;
@@ -76,7 +72,7 @@ class OxherdApp {
       );
     });
 
-    // 2. 新建/切换任务
+    // 2. 新建全新空白值班任务
     const newTaskBtn = document.getElementById('new-task-btn');
     newTaskBtn?.addEventListener('click', () => {
       NativeBridgeService.triggerLightHaptic();
@@ -86,26 +82,27 @@ class OxherdApp {
       });
     });
 
-    // 3. 系统全参数设置（通知唤醒 + 开机自启 + 保活 + 主题）
+    // 3. 系统全参数设置（包含协同外链、JSON导入导出、通知唤醒、开机保活）
     const settingsBtn = document.getElementById('system-settings-btn');
     settingsBtn?.addEventListener('click', async () => {
       NativeBridgeService.triggerLightHaptic();
-      await ModalManager.openSystemSettingsModal(() => {
+      await ModalManager.openSystemSettingsModal(this.currentTask, () => {
         this.initTheme();
         this.render();
       });
     });
 
-    // 4. 临时添加巡检项
+    // 4. 临时添加巡检项（支持快速录入）
     const addTempItemBtn = document.getElementById('add-temp-item-btn');
     addTempItemBtn?.addEventListener('click', () => {
       if (!this.currentTask) return;
-      const title = prompt('请输入临时巡检条目名称：');
+      const title = prompt('请输入新巡查条目名称：');
       if (title && title.trim()) {
         const newItem: DutyItem = {
           id: `item_${this.currentTask.currentPostId}_${Date.now()}`,
           postId: this.currentTask.currentPostId,
           title: title.trim(),
+          itemType: 'STANDARD',
           requirePhoto: false,
           photos: [],
           isCompleted: false,
@@ -125,7 +122,7 @@ class OxherdApp {
 
     // 6. 拍照选择器文件捕获
     const fileInput = document.getElementById('camera-file-input') as HTMLInputElement;
-    fileInput?.addEventListener('change', (e) => {
+    fileInput?.addEventListener('change', () => {
       const file = fileInput.files?.[0];
       if (!file || !this.pendingPhotoItemId || !this.currentTask) return;
 
@@ -183,7 +180,7 @@ class OxherdApp {
 
     let startTime = 0;
     let animFrame: any = null;
-    const HOLD_DURATION = 1500; // 1.5 秒蓄力
+    const HOLD_DURATION = 1500;
 
     const cancelHold = () => {
       if (animFrame) {
@@ -222,7 +219,7 @@ class OxherdApp {
     handoverBtn.addEventListener('pointercancel', cancelHold);
   }
 
-  // ── 执行交班并自动归档 ──────────────────────────────────────
+  // ── 执行交班并自动归档与复位 ──────────────────────────────────
   private async executeHandover(): Promise<void> {
     if (!this.currentTask) return;
 
@@ -260,7 +257,7 @@ class OxherdApp {
     toast?.classList.remove('show');
   }
 
-  // ── 界面全量响应式渲染 ──────────────────────────────────────
+  // ── 界面全量渲染 ────────────────────────────────────────────
   private render(): void {
     if (!this.currentTask) return;
 
@@ -270,12 +267,11 @@ class OxherdApp {
       task.currentPostId = task.posts[0].id;
     }
 
-    // 1. 顶栏更新
     const shiftBadge = document.getElementById('shift-badge');
     if (shiftBadge) shiftBadge.textContent = task.shiftName;
 
     const currentPostName = document.getElementById('current-post-name');
-    if (currentPostName) currentPostName.textContent = currentPost ? currentPost.name : '请设置岗位';
+    if (currentPostName) currentPostName.textContent = currentPost ? currentPost.name : '请在设置中创建岗位';
 
     const currentPostItems = task.items.filter(i => i.postId === currentPost?.id);
     const postCompletedCount = currentPostItems.filter(i => i.isCompleted).length;
@@ -285,7 +281,6 @@ class OxherdApp {
       currentPostStats.textContent = `${postCompletedCount}/${currentPostItems.length} 项已核验`;
     }
 
-    // 2. 进度条更新
     const taskTitleDisplay = document.getElementById('task-title-display');
     if (taskTitleDisplay) taskTitleDisplay.textContent = task.title;
 
@@ -299,32 +294,30 @@ class OxherdApp {
     const progressFill = document.getElementById('task-progress-fill');
     if (progressFill) progressFill.style.width = `${percentage}%`;
 
-    // 3. 渲染条目列表
     const container = document.getElementById('items-list');
     if (!container) return;
 
     if (currentPostItems.length === 0) {
       container.innerHTML = `
         <div style="text-align:center; padding:50px 20px; color:var(--text-muted);">
-          <div style="font-size:2.5rem; margin-bottom:8px;">📝</div>
+          <div style="font-size:2.5rem; margin-bottom:8px;">🏮</div>
           <div style="font-weight:600; font-size:1rem; color:var(--text-main);">当前岗位暂无巡检条目</div>
-          <div style="font-size:0.8125rem; margin-top:4px;">点击下方「+」按钮或右上角模板添加巡查事项</div>
+          <div style="font-size:0.8125rem; margin-top:4px;">
+            点击下方「+」按钮直接添加条目，或在上方「岗位设置」中自由配置
+          </div>
         </div>
       `;
       return;
     }
 
-    // 生成条目 HTML
     container.innerHTML = currentPostItems
       .map(item => this.renderItemCardHtml(item))
       .join('');
 
-    // 为每个卡片绑定手势与微交互
     currentPostItems.forEach(item => {
       const cardEl = container.querySelector(`[data-item-card-id="${item.id}"]`) as HTMLElement;
       if (!cardEl) return;
 
-      // 绑定滑动划去手势 (Swipe-to-complete)
       bindCardSwipe(cardEl, {
         threshold: 75,
         onSwipeComplete: () => {
@@ -335,7 +328,6 @@ class OxherdApp {
           };
           item.isCompleted = true;
           item.completedAt = new Date().toISOString();
-          // 如果有子条目，同步标记全部子条目完成
           item.subItems.forEach(sub => {
             sub.isCompleted = true;
             sub.completedAt = item.completedAt;
@@ -346,7 +338,6 @@ class OxherdApp {
         }
       });
 
-      // 快速勾选框点击
       const checkbox = cardEl.querySelector('.item-checkbox') as HTMLElement;
       checkbox?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -361,7 +352,6 @@ class OxherdApp {
         this.render();
       });
 
-      // 子条目折叠展开
       const toggleSubBtn = cardEl.querySelector('.subitems-toggle-btn') as HTMLElement;
       toggleSubBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -370,7 +360,6 @@ class OxherdApp {
         this.render();
       });
 
-      // 单个子条目点击核验
       cardEl.querySelectorAll('.subitem-row').forEach(subRow => {
         subRow.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -379,7 +368,6 @@ class OxherdApp {
           if (sub) {
             sub.isCompleted = !sub.isCompleted;
             sub.completedAt = sub.isCompleted ? new Date().toISOString() : null;
-            // 若全部子项完成，主项也标记完成
             const allSubDone = item.subItems.every(s => s.isCompleted);
             if (allSubDone && !item.isCompleted) {
               item.isCompleted = true;
@@ -392,7 +380,6 @@ class OxherdApp {
         });
       });
 
-      // 拍照按钮点击
       const addPhotoBtn = cardEl.querySelector('.add-photo-btn') as HTMLElement;
       addPhotoBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -401,7 +388,6 @@ class OxherdApp {
         fileInput?.click();
       });
 
-      // 复制照片凭证链接/数据
       cardEl.querySelectorAll('.copy-photo-data-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -413,7 +399,6 @@ class OxherdApp {
         });
       });
 
-      // 删除照片
       cardEl.querySelectorAll('.photo-del-badge').forEach(delBtn => {
         delBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -433,8 +418,8 @@ class OxherdApp {
     const hasPhotos = item.photos && item.photos.length > 0;
     const subCount = item.subItems.length;
     const subDoneCount = item.subItems.filter(s => s.isCompleted).length;
+    const isScheduled = item.itemType === 'SCHEDULED';
 
-    // 照片缩略图
     const photosThumbHtml = hasPhotos
       ? item.photos
           .map(
@@ -448,7 +433,6 @@ class OxherdApp {
           .join('')
       : '';
 
-    // 子条目列表
     const subItemsHtml =
       subCount > 0 && item.isExpanded
         ? `
@@ -474,7 +458,6 @@ class OxherdApp {
 
     return `
       <div class="duty-item-card" data-item-card-id="${item.id}">
-        <!-- 滑动底衬 -->
         <div class="swipe-backdrop">
           <div class="swipe-icon-hint">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -484,7 +467,6 @@ class OxherdApp {
           </div>
         </div>
 
-        <!-- 真实内容层 -->
         <div class="item-content-wrapper">
           <div class="item-main-row">
             <div class="item-checkbox ${isDone ? 'checked' : ''}">
@@ -499,6 +481,16 @@ class OxherdApp {
               <!-- 状态元数据 -->
               <div class="item-meta-row">
                 ${
+                  isScheduled
+                    ? `
+                  <div class="brand-badge" style="background:rgba(56, 189, 248, 0.15); color:var(--accent);">
+                    ⏰ ${item.startTime || '09:00'} - ${item.endTime || '11:30'} 时段巡查
+                  </div>
+                `
+                    : ''
+                }
+
+                ${
                   isDone
                     ? `
                   <div class="item-timestamp-badge">
@@ -509,10 +501,9 @@ class OxherdApp {
                     <span>${timeFormatted} 已核验</span>
                   </div>
                 `
-                    : '<span style="color:var(--text-muted);">待巡检核对 (可右滑划去)</span>'
+                    : '<span style="color:var(--text-muted);">待巡检 (可右滑划去)</span>'
                 }
 
-                <!-- 拍照要求标签 -->
                 ${
                   item.requirePhoto
                     ? `
@@ -524,7 +515,6 @@ class OxherdApp {
                 }
               </div>
 
-              <!-- 展开/折叠子条目入口 -->
               ${
                 subCount > 0
                   ? `
@@ -535,10 +525,8 @@ class OxherdApp {
                   : ''
               }
 
-              <!-- 展开的子条目列表 -->
               ${subItemsHtml}
 
-              <!-- 照片预览与上传面板 -->
               <div class="item-photos-panel">
                 ${photosThumbHtml}
                 <button class="add-photo-btn">
@@ -567,7 +555,6 @@ class OxherdApp {
   }
 }
 
-// 页面加载就绪后启动应用
 document.addEventListener('DOMContentLoaded', () => {
   new OxherdApp();
 });

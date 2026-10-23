@@ -19,10 +19,15 @@ export interface DutySubItem {
   completedAt: string | null;
 }
 
+export type ItemType = 'STANDARD' | 'SCHEDULED'; // 常规待办 vs 时段巡查
+
 export interface DutyItem {
   id: string;
   postId: string;
   title: string;
+  itemType: ItemType; // 支持一键转换条目属性
+  startTime?: string; // 时段巡查开始时间 (如 "09:00")
+  endTime?: string;   // 时段巡查结束时间 (如 "11:30")
   note?: string;
   requirePhoto: boolean; // 设置中可配置是否拍照
   photos: InspectionPhoto[];
@@ -63,6 +68,9 @@ export interface TemplatePostPreset {
   description?: string;
   items: {
     title: string;
+    itemType?: ItemType;
+    startTime?: string;
+    endTime?: string;
     requirePhoto?: boolean;
     subItems?: string[];
   }[];
@@ -87,6 +95,8 @@ export interface UserSettings {
   onDutyStartAlert: boolean;
   bootRestoreEnabled: boolean;
   autoArchiveZip: boolean;
+  handoverExternalUrl: string; // 预设值班交班外链 (如腾讯文档/飞书/企业微信表单)
+  handoverTarget: 'url' | 'wechat' | 'tim' | 'none'; // 协同跳转目标
 }
 
 export interface DutyArchive {
@@ -100,6 +110,5 @@ export interface DutyArchive {
   completedItems: number;
   totalPhotos: number;
   zipBlob?: Blob;
-  zipBase64?: string;
   summaryText: string;
 }
