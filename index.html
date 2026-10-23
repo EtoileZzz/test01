@@ -44,6 +44,13 @@
         <!-- 动态渲染岗位胶囊 -->
       </nav>
 
+      <!-- 快捷视图筛选胶囊 (全部 / 待巡检 / 需拍照) -->
+      <div class="filter-pills-bar" id="filter-pills-bar">
+        <button type="button" class="filter-pill active" data-filter="all">全部 <span class="filter-count" id="filter-count-all">0</span></button>
+        <button type="button" class="filter-pill" data-filter="pending">待巡检 <span class="filter-count" id="filter-count-pending">0</span></button>
+        <button type="button" class="filter-pill" data-filter="photo">需拍照 <span class="filter-count" id="filter-count-photo">0</span></button>
+      </div>
+
       <!-- 顶栏贴合式 3px 微型流体进度条 -->
       <div class="header-progress-track">
         <div class="header-progress-fill" id="task-progress-fill" style="width: 0%;"></div>

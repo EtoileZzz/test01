@@ -20,6 +20,7 @@ class OxherdApp {
   private pendingPhotoItemId: string | null = null;
   private undoTimer: any = null;
   private undoSnapshot: UndoSnapshot | null = null;
+  private currentFilter: 'all' | 'pending' | 'photo' = 'all';
 
   constructor() {
     this.initApp();
@@ -199,7 +200,21 @@ class OxherdApp {
     undoBtn?.addEventListener('pointerdown', onUndoTrigger);
     undoBtn?.addEventListener('click', onUndoTrigger);
 
-    // 7. 键盘 Space 空格快捷操作（支持巡检PDA实体按键/外接键盘：按空格自动完成或切换细项）
+    // 7. 快捷视图筛选胶囊 (全部 / 待巡检 / 需拍照)
+    const filterBar = document.getElementById('filter-pills-bar');
+    filterBar?.querySelectorAll('.filter-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const filter = pill.getAttribute('data-filter') as 'all' | 'pending' | 'photo';
+        if (this.currentFilter === filter) return;
+        this.currentFilter = filter;
+        filterBar.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        NativeBridgeService.triggerLightHaptic();
+        this.render();
+      });
+    });
+
+    // 8. 键盘 Space 空格快捷操作（支持巡检PDA实体按键/外接键盘：按空格自动完成或切换细项）
     window.addEventListener('keydown', (e) => {
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
@@ -355,7 +370,7 @@ class OxherdApp {
         } else {
           animFrame = null;
           NativeBridgeService.triggerCompleteHaptic();
-          this.executeHandover();
+          this.triggerHandoverWithPreflightCheck();
           cancelHold();
         }
       };
@@ -365,6 +380,27 @@ class OxherdApp {
     handoverBtn.addEventListener('pointerup', cancelHold);
     handoverBtn.addEventListener('pointerleave', cancelHold);
     handoverBtn.addEventListener('pointercancel', cancelHold);
+  }
+
+  // ── 智能交班合规性拦截预检 ──────────────────────────────────────
+  private triggerHandoverWithPreflightCheck(): void {
+    if (!this.currentTask) return;
+
+    const allItems = this.currentTask.items;
+    const pendingItems = allItems.filter(i => !i.isCompleted);
+    const missingPhotoItems = allItems.filter(i => i.requirePhoto && (!i.photos || i.photos.length === 0));
+
+    if (pendingItems.length > 0 || missingPhotoItems.length > 0) {
+      ModalManager.openHandoverPreflightModal({
+        pendingItems,
+        missingPhotoItems,
+        onConfirmForceHandover: () => {
+          this.executeHandover();
+        }
+      });
+    } else {
+      this.executeHandover();
+    }
   }
 
   // ── 执行交班：专门打包现场照片归档并就绪下一班（完整保留条目） ──────
@@ -380,13 +416,20 @@ class OxherdApp {
       }
     }
 
+    const task = this.currentTask;
+    const totalItemsCount = task.items.length;
+    const completedItemsCount = task.items.filter(i => i.isCompleted).length;
+
     // 核心要求：“交班刷新之后条目就没有了，保留”
     // completeAndArchivePhotos 内部自动将照片打包归档，并为下一班克隆保留所有岗位与条目
-    const archive = await DutyStorage.completeAndArchivePhotos(this.currentTask);
+    const archive = await DutyStorage.completeAndArchivePhotos(task);
 
     ModalManager.openPhotosArchiveCompletedModal({
       totalPhotos: archive.totalPhotos,
-      postsCount: this.currentTask.posts.length,
+      postsCount: task.posts.length,
+      totalItemsCount,
+      completedItemsCount,
+      shiftName: task.shiftName,
       onResetAndRestart: () => {
         // 核心要求：“交班刷新之后条目就没有了，保留”
         // 重新获取并渲染克隆好的新任务（条目全部完整保留，复位打卡）
@@ -449,6 +492,18 @@ class OxherdApp {
 
     const currentPostItems = task.items.filter(i => i.postId === currentPost?.id);
 
+    // 更新快捷视图筛选胶囊计数
+    const countAll = currentPostItems.length;
+    const countPending = currentPostItems.filter(i => !i.isCompleted).length;
+    const countPhoto = currentPostItems.filter(i => i.requirePhoto).length;
+
+    const countAllEl = document.getElementById('filter-count-all');
+    const countPendingEl = document.getElementById('filter-count-pending');
+    const countPhotoEl = document.getElementById('filter-count-photo');
+    if (countAllEl) countAllEl.textContent = String(countAll);
+    if (countPendingEl) countPendingEl.textContent = String(countPending);
+    if (countPhotoEl) countPhotoEl.textContent = String(countPhoto);
+
     if (currentPostItems.length === 0) {
       container.innerHTML = `
         <div style="text-align:center; padding:70px 20px; color:var(--text-muted);">
@@ -462,12 +517,32 @@ class OxherdApp {
       return;
     }
 
-    container.innerHTML = currentPostItems
+    const itemsToDisplay = currentPostItems.filter(item => {
+      if (this.currentFilter === 'pending') return !item.isCompleted;
+      if (this.currentFilter === 'photo') return !!item.requirePhoto;
+      return true;
+    });
+
+    if (itemsToDisplay.length === 0) {
+      const filterName = this.currentFilter === 'pending' ? '待巡检未完成项' : '需拍照凭证条目';
+      container.innerHTML = `
+        <div style="text-align:center; padding:50px 20px; color:var(--text-muted);">
+          <div style="font-size:2.5rem; margin-bottom:8px;">✨</div>
+          <div style="font-weight:700; font-size:0.9375rem; color:var(--text-main);">当前没有${filterName}</div>
+          <div style="font-size:0.75rem; margin-top:4px; color:var(--text-muted);">
+            本岗位共 ${countAll} 项，可切换上方「全部」查看完整条目
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = itemsToDisplay
       .map(item => this.renderItemCardHtml(item))
       .join('');
 
     // 绑定条目卡片交互（1:1 左右双向划除、复选框、编辑与拍照）
-    currentPostItems.forEach(item => {
+    itemsToDisplay.forEach(item => {
       const cardEl = container.querySelector(`[data-item-card-id="${item.id}"]`) as HTMLElement;
       if (!cardEl) return;
 
@@ -587,25 +662,40 @@ class OxherdApp {
         });
       });
 
-      // 展开/收起细分子项与拍照留痕
+      // 展开/收起细分子项与拍照留痕（直接在当前卡片操作 DOM 类名，享受 CSS 物理动画，绝不整体销毁重建 DOM）
       const toggleSubBtn = cardEl.querySelector('.subitems-toggle-btn') as HTMLElement;
-      toggleSubBtn?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        item.isExpanded = item.isExpanded === false ? true : false;
-        DutyStorage.saveTask(task);
-        NativeBridgeService.triggerLightHaptic();
-        this.render();
-      });
-
-      // 顶部折叠按钮
       const foldBtn = cardEl.querySelector('.item-fold-btn') as HTMLElement;
-      foldBtn?.addEventListener('click', (e) => {
+      const expandableSection = cardEl.querySelector('.item-expandable-section') as HTMLElement;
+
+      const toggleFold = (e: Event) => {
         e.stopPropagation();
-        item.isExpanded = item.isExpanded === false ? true : false;
+        const nextExpanded = item.isExpanded === false ? true : false;
+        item.isExpanded = nextExpanded;
         DutyStorage.saveTask(task);
         NativeBridgeService.triggerLightHaptic();
-        this.render();
-      });
+
+        // 动效平滑切换：直接操作 DOM 切换样式类，避免重绘整个列表破坏 CSS 物理折叠动画
+        cardEl.classList.toggle('is-folded', !nextExpanded);
+        if (expandableSection) {
+          expandableSection.classList.toggle('collapsed', !nextExpanded);
+        }
+        const foldSvg = foldBtn?.querySelector('svg');
+        if (foldSvg) {
+          foldSvg.style.transform = nextExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+        if (foldBtn) {
+          foldBtn.title = nextExpanded ? '收起拍照与细项' : '展开拍照留痕与细项';
+        }
+        if (toggleSubBtn) {
+          const hasPhotos = item.photos && item.photos.length > 0;
+          const subCount = item.subItems ? item.subItems.length : 0;
+          const subDoneCount = item.subItems ? item.subItems.filter(s => s.isCompleted).length : 0;
+          toggleSubBtn.innerHTML = `<span>${nextExpanded ? '▾ 收起细项与拍照' : '▸ 展开细项与拍照'} ${hasPhotos ? `(📷 ${item.photos.length}张照片)` : (item.requirePhoto ? '(需拍照)' : '')} ${subCount > 0 ? `(${subDoneCount}/${subCount}细项)` : ''}</span>`;
+        }
+      };
+
+      toggleSubBtn?.addEventListener('click', toggleFold);
+      foldBtn?.addEventListener('click', toggleFold);
 
       // 细分子项交互绑定（支持设置中配置：点击打勾划去 vs 左右手势滑动划去）
       const isSwipeSub = DutyStorage.getSettings().subItemCompleteMode === 'swipe';
@@ -797,7 +887,7 @@ class OxherdApp {
       : '';
 
     const subItemsHtml =
-      subCount > 0 && isExpanded
+      subCount > 0
         ? `
         <div class="subitems-list">
           ${item.subItems
@@ -832,30 +922,28 @@ class OxherdApp {
       `
         : '';
 
-    const photosPanelHtml = isExpanded
-      ? `
-        <div class="item-photos-panel">
-          ${photosThumbHtml}
-          <button class="add-photo-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-              <circle cx="12" cy="13" r="4"></circle>
-            </svg>
-            <span>${hasPhotos ? '继续拍照' : '现场拍照留痕'}</span>
-          </button>
+    const photosPanelHtml = `
+      <div class="item-photos-panel">
+        ${photosThumbHtml}
+        <button class="add-photo-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span>${hasPhotos ? '继续拍照' : '现场拍照留痕'}</span>
+        </button>
 
-          ${
-            hasPhotos
-              ? `
-            <button class="icon-btn copy-photo-data-btn" title="复制照片凭证信息" style="width:auto; height:32px; padding:0 8px; font-size:0.6875rem;">
-              📋 复制凭证
-            </button>
-          `
-              : ''
-          }
-        </div>
-      `
-      : '';
+        ${
+          hasPhotos
+            ? `
+          <button class="icon-btn copy-photo-data-btn" title="复制照片凭证信息" style="width:auto; height:32px; padding:0 8px; font-size:0.6875rem;">
+            📋 复制凭证
+          </button>
+        `
+            : ''
+        }
+      </div>
+    `;
 
     return `
       <div class="duty-item-card ${isDone ? 'completed-card' : ''} ${!isExpanded ? 'is-folded' : ''}" data-item-card-id="${item.id}">
@@ -964,13 +1052,21 @@ class OxherdApp {
                 <button class="subitems-toggle-btn">
                   <span>${isExpanded ? '▾ 收起细项与拍照' : '▸ 展开细项与拍照'} ${hasPhotos ? `(📷 ${item.photos.length}张照片)` : (item.requirePhoto ? '(需拍照)' : '')} ${subCount > 0 ? `(${subDoneCount}/${subCount}细项)` : ''} ${isAutoFolded ? (isDone ? '· 已自动折叠' : '· 简化已折叠') : ''}</span>
                 </button>
+                <div class="item-expandable-section ${!isExpanded ? 'collapsed' : ''}">
+                  <div class="expandable-inner">
+                    ${subItemsHtml}
+                    ${photosPanelHtml}
+                  </div>
+                </div>
               `
-                  : ''
+                  : `
+                <div class="item-expandable-section">
+                  <div class="expandable-inner">
+                    ${photosPanelHtml}
+                  </div>
+                </div>
+              `
               }
-
-              ${subItemsHtml}
-
-              ${photosPanelHtml}
             </div>
           </div>
         </div>

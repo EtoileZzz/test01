@@ -663,37 +663,54 @@ export class ModalManager {
           </div>
         </div>
 
-        <!-- 自绘色盘取色器 -->
+        <!-- 主题色定制：色相滑块 + 推荐磁贴 + 原生选色 -->
         <div class="theme-palette-box">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
             <div style="display:flex; align-items:center; gap:8px;">
-              <div id="theme-color-preview-circle" style="width:20px; height:20px; border-radius:50%; background:var(--accent); border:2px solid white; box-shadow:0 0 0 1px var(--border-color);"></div>
-              <span style="font-size:0.8125rem; font-weight:700; color:var(--text-main);">自绘全色光谱色盘</span>
-              <span id="theme-color-hex-tag" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--text-muted);">${settings.themeColor || '默认'}</span>
+              <div id="theme-color-preview-circle" style="width:22px; height:22px; border-radius:50%; background:var(--accent); border:2px solid white; box-shadow:0 0 0 1.5px var(--border-color); flex-shrink:0;"></div>
+              <div>
+                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-main);">主题强调色定制</div>
+                <div id="theme-color-hex-tag" style="font-size:0.6875rem; font-family:var(--font-mono); color:var(--text-muted);">${settings.themeColor || '默认系统强调色'}</div>
+              </div>
             </div>
-            <button type="button" class="icon-btn" id="reset-theme-color-btn" style="width:auto; height:26px; padding:0 10px; font-size:0.6875rem;">
-              恢复默认
-            </button>
-          </div>
-          
-          <div class="theme-canvas-container">
-            <canvas id="theme-color-canvas" width="300" height="110"></canvas>
+            <div style="display:flex; gap:6px;">
+              <label class="icon-btn" style="width:auto; height:28px; padding:0 8px; font-size:0.6875rem; cursor:pointer; position:relative; overflow:hidden;" title="打开系统原生取色器">
+                🎨 原生调色
+                <input type="color" id="native-color-input" value="${settings.themeColor || '#38bdf8'}" style="position:absolute; opacity:0; width:100%; height:100%; left:0; top:0; cursor:pointer;" />
+              </label>
+              <button type="button" class="icon-btn" id="reset-theme-color-btn" style="width:auto; height:28px; padding:0 8px; font-size:0.6875rem;">
+                重置
+              </button>
+            </div>
           </div>
 
-          <div style="display:flex; flex-direction:column; gap:6px;">
-            <span style="font-size:0.6875rem; color:var(--text-muted); font-weight:600;">经典预设推荐：</span>
+          <!-- 彩虹色相滑块 -->
+          <div style="margin:4px 0 2px;">
+            <div style="font-size:0.6875rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">
+              🌈 连续色相微调滑条：
+            </div>
+            <input type="range" id="theme-hue-slider" min="0" max="360" value="200" class="hue-range-slider" />
+          </div>
+
+          <!-- 精选预设色块 -->
+          <div>
+            <div style="font-size:0.6875rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">✨ 精选巡更主题色：</div>
             <div class="color-presets-row" id="theme-color-presets">
               ${[
                 { name: '极光天蓝', hex: '#38BDF8' },
                 { name: '深海湛蓝', hex: '#0284C7' },
-                { name: '翡翠生机', hex: '#10B981' },
                 { name: '赛博青翠', hex: '#06B6D4' },
+                { name: '翡翠生机', hex: '#10B981' },
                 { name: '梦幻星紫', hex: '#8B5CF6' },
                 { name: '珊瑚粉红', hex: '#F43F5E' },
-                { name: '日落落霞', hex: '#F97316' },
+                { name: '落日炽橙', hex: '#F97316' },
+                { name: '琥珀流金', hex: '#F59E0B' },
                 { name: '高级石墨', hex: '#64748B' }
               ].map(p => `
-                <button type="button" class="color-swatch-btn ${settings.themeColor === p.hex ? 'active' : ''}" data-hex="${p.hex}" style="background:${p.hex};" title="${p.name} (${p.hex})"></button>
+                <div class="color-preset-card ${settings.themeColor === p.hex ? 'active' : ''}" data-hex="${p.hex}">
+                  <span class="color-dot" style="background:${p.hex};"></span>
+                  <span class="color-name">${p.name}</span>
+                </div>
               `).join('')}
             </div>
           </div>
@@ -925,20 +942,33 @@ export class ModalManager {
         alert('值班填报链接已保存！');
       });
 
-      // 🎨 自绘色盘取色与主题色定制
-      const canvas = card.querySelector('#theme-color-canvas') as HTMLCanvasElement;
+      // 🎨 主题色定制（色相滑条 + 精选磁贴 + 原生调色器）
       const hexTag = card.querySelector('#theme-color-hex-tag') as HTMLElement;
       const previewCircle = card.querySelector('#theme-color-preview-circle') as HTMLElement;
       const resetColorBtn = card.querySelector('#reset-theme-color-btn') as HTMLElement;
-      const presetBtns = card.querySelectorAll('#theme-color-presets .color-swatch-btn');
+      const hueSlider = card.querySelector('#theme-hue-slider') as HTMLInputElement;
+      const nativeColorInput = card.querySelector('#native-color-input') as HTMLInputElement;
+      const presetCards = card.querySelectorAll('#theme-color-presets .color-preset-card');
+
+      const hslToHex = (h: number, s: number, l: number): string => {
+        l /= 100;
+        const a = (s * Math.min(l, 1 - l)) / 100;
+        const f = (n: number) => {
+          const k = (n + h / 30) % 12;
+          const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+          return Math.round(255 * color).toString(16).padStart(2, '0');
+        };
+        return `#${f(0)}${f(8)}${f(4)}`;
+      };
 
       const applyThemeColor = (colorHex: string) => {
         settings.themeColor = colorHex;
         DutyStorage.saveSettings({ themeColor: colorHex });
-        if (hexTag) hexTag.textContent = colorHex || '默认';
+        if (hexTag) hexTag.textContent = colorHex || '默认系统强调色';
         if (previewCircle) previewCircle.style.background = colorHex || 'var(--accent)';
-        presetBtns.forEach(btn => {
-          btn.classList.toggle('active', btn.getAttribute('data-hex') === colorHex);
+        if (nativeColorInput && colorHex) nativeColorInput.value = colorHex;
+        presetCards.forEach(c => {
+          c.classList.toggle('active', c.getAttribute('data-hex')?.toLowerCase() === colorHex.toLowerCase());
         });
 
         if (colorHex) {
@@ -959,90 +989,22 @@ export class ModalManager {
         onSettingsChanged();
       };
 
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const width = canvas.width;
-          const height = canvas.height;
+      // 色相滑条连续微调
+      hueSlider?.addEventListener('input', () => {
+        const h = parseInt(hueSlider.value, 10);
+        const hex = hslToHex(h, 85, 54);
+        applyThemeColor(hex);
+      });
 
-          const drawSpectrum = (markerX?: number, markerY?: number) => {
-            // 水平彩虹光谱
-            const hGrad = ctx.createLinearGradient(0, 0, width, 0);
-            hGrad.addColorStop(0, '#ff0000');
-            hGrad.addColorStop(0.17, '#ffff00');
-            hGrad.addColorStop(0.33, '#00ff00');
-            hGrad.addColorStop(0.50, '#00ffff');
-            hGrad.addColorStop(0.67, '#0000ff');
-            hGrad.addColorStop(0.83, '#ff00ff');
-            hGrad.addColorStop(1, '#ff0000');
-            ctx.fillStyle = hGrad;
-            ctx.fillRect(0, 0, width, height);
+      // 系统原生取色器
+      nativeColorInput?.addEventListener('input', () => {
+        applyThemeColor(nativeColorInput.value);
+      });
 
-            // 垂直明度与饱和度渐变
-            const vGrad = ctx.createLinearGradient(0, 0, 0, height);
-            vGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
-            vGrad.addColorStop(0.48, 'rgba(255, 255, 255, 0)');
-            vGrad.addColorStop(0.52, 'rgba(0, 0, 0, 0)');
-            vGrad.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
-            ctx.fillStyle = vGrad;
-            ctx.fillRect(0, 0, width, height);
-
-            // 绘制当前光标指示器
-            if (markerX !== undefined && markerY !== undefined) {
-              ctx.beginPath();
-              ctx.arc(markerX, markerY, 7, 0, Math.PI * 2);
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 2.5;
-              ctx.stroke();
-              ctx.beginPath();
-              ctx.arc(markerX, markerY, 5, 0, Math.PI * 2);
-              ctx.strokeStyle = '#000000';
-              ctx.lineWidth = 1.5;
-              ctx.stroke();
-            }
-          };
-
-          drawSpectrum();
-
-          const pickColor = (e: PointerEvent) => {
-            const rect = canvas.getBoundingClientRect();
-            const rawX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-            const rawY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-            const canvasX = Math.round((rawX / rect.width) * width);
-            const canvasY = Math.round((rawY / rect.height) * height);
-
-            drawSpectrum(canvasX, canvasY);
-
-            const pixel = ctx.getImageData(canvasX, canvasY, 1, 1).data;
-            const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(x => x.toString(16).padStart(2, '0')).join('');
-            applyThemeColor(hex);
-          };
-
-          let isPicking = false;
-          canvas.addEventListener('pointerdown', (e) => {
-            isPicking = true;
-            try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
-            pickColor(e);
-            NativeBridgeService.triggerLightHaptic();
-          });
-          canvas.addEventListener('pointermove', (e) => {
-            if (isPicking) pickColor(e);
-          });
-          const endPick = (e: PointerEvent) => {
-            if (isPicking) {
-              isPicking = false;
-              try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-            }
-          };
-          canvas.addEventListener('pointerup', endPick);
-          canvas.addEventListener('pointercancel', endPick);
-        }
-      }
-
-      // 预设推荐色
-      presetBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-          const hex = btn.getAttribute('data-hex');
+      // 预设主题色卡片点击
+      presetCards.forEach(c => {
+        c.addEventListener('click', () => {
+          const hex = c.getAttribute('data-hex');
           if (hex) {
             applyThemeColor(hex);
             NativeBridgeService.triggerLightHaptic();
@@ -1335,6 +1297,103 @@ export class ModalManager {
     });
   }
 
+  // ── 智能交班预检拦截模态框 ──────────────────────────────────────
+  static openHandoverPreflightModal(params: {
+    pendingItems: DutyItem[];
+    missingPhotoItems: DutyItem[];
+    onConfirmForceHandover: () => void;
+  }): void {
+    const totalDefects = params.pendingItems.length + params.missingPhotoItems.length;
+
+    const contentHtml = `
+      <div style="text-align:center; padding:10px 0 14px;">
+        <div style="width:56px; height:56px; border-radius:50%; background:rgba(239, 68, 68, 0.12); color:var(--danger); display:flex; align-items:center; justify-content:center; margin:0 auto 10px;">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <h2 style="font-size:1.125rem; font-weight:700; color:var(--text-main);">智能交班合规性预检拦截</h2>
+        <p style="font-size:0.8125rem; color:var(--text-muted); margin-top:4px;">
+          检测到本次值班尚有 <b>${totalDefects} 处</b> 未达到合规交班标准：
+        </p>
+      </div>
+
+      <div class="settings-group" style="padding:12px; font-size:0.8125rem;">
+        ${
+          params.pendingItems.length > 0
+            ? `
+          <div style="margin-bottom:10px;">
+            <div style="font-weight:700; color:var(--danger); display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+              <span>❌ 待巡检未核验主项 (${params.pendingItems.length}项)</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;">
+              ${params.pendingItems
+                .map(
+                  item => `
+                <div style="padding:6px 10px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-sm); font-size:0.75rem; color:var(--text-main); display:flex; align-items:center; justify-content:space-between;">
+                  <span style="font-weight:600;">• ${item.title}</span>
+                  <span style="font-size:0.6875rem; color:var(--text-muted);">${item.subItems?.length ? `${item.subItems.filter(s => s.isCompleted).length}/${item.subItems.length}细项` : '未核验'}</span>
+                </div>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+            : ''
+        }
+
+        ${
+          params.missingPhotoItems.length > 0
+            ? `
+          <div>
+            <div style="font-weight:700; color:var(--warning); display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+              <span>📷 需拍照留痕但未拍凭证 (${params.missingPhotoItems.length}项)</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:4px; max-height:140px; overflow-y:auto;">
+              ${params.missingPhotoItems
+                .map(
+                  item => `
+                <div style="padding:6px 10px; background:var(--bg-card); border:1px solid var(--border-color); border-radius:var(--radius-sm); font-size:0.75rem; color:var(--text-main); display:flex; align-items:center; justify-content:space-between;">
+                  <span style="font-weight:600;">• ${item.title}</span>
+                  <span style="font-size:0.6875rem; color:var(--warning); font-weight:600;">缺失现场照片</span>
+                </div>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+            : ''
+        }
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+        <button class="icon-btn" id="preflight-back-btn" style="width:100%; height:44px; font-weight:700; font-size:0.875rem; background:var(--accent); color:white; border:none; gap:6px;">
+          🔙 返回继续巡检（完善以上条目）
+        </button>
+        <button class="icon-btn" id="preflight-force-btn" style="width:100%; height:38px; font-size:0.8125rem; color:var(--text-muted); background:transparent; border:1px dashed var(--border-color);">
+          ⚠️ 忽略未完成项，确认强制交班
+        </button>
+      </div>
+    `;
+
+    const close = this.openSheet('交班合规性拦截预检', contentHtml, (card) => {
+      card.querySelector('#preflight-back-btn')?.addEventListener('click', () => {
+        close();
+        NativeBridgeService.triggerLightHaptic();
+      });
+
+      card.querySelector('#preflight-force-btn')?.addEventListener('click', () => {
+        close();
+        NativeBridgeService.triggerCompleteHaptic();
+        params.onConfirmForceHandover();
+      });
+    });
+  }
+
   // ── 确认填写完报告后，专门打包归档照片与自动复位 ────────────────
   /**
    * 核心要求：“不用交班报告，只需要把值班过程中的照片分类存储到指定文件夹即可，确认填写完报告后打包归档”
@@ -1342,6 +1401,9 @@ export class ModalManager {
   static openPhotosArchiveCompletedModal(archiveData: {
     totalPhotos: number;
     postsCount: number;
+    completedItemsCount?: number;
+    totalItemsCount?: number;
+    shiftName?: string;
     onResetAndRestart: () => void;
   }): void {
     const contentHtml = `
@@ -1367,7 +1429,10 @@ export class ModalManager {
         </div>
       </div>
 
-      <div style="margin-top:12px;">
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+        <button class="icon-btn" id="copy-handover-report-btn" style="width:100%; height:42px; font-weight:600; font-size:0.875rem; background:var(--accent-light); color:var(--accent); border:1px solid var(--accent); gap:6px;">
+          📋 一键复制微信/钉钉交班文字简报
+        </button>
         <button class="icon-btn" id="finish-reset-btn" style="width:100%; height:46px; font-weight:700; font-size:0.9375rem; background:var(--text-main); color:var(--bg-main); border:none; gap:6px;">
           🔄 归档并刷新，就绪下一次值班
         </button>
@@ -1375,6 +1440,45 @@ export class ModalManager {
     `;
 
     const close = this.openSheet('值班照片分类打包完成', contentHtml, (card) => {
+      const copyBtn = card.querySelector('#copy-handover-report-btn') as HTMLElement;
+      copyBtn?.addEventListener('click', async () => {
+        const todayStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const comp = archiveData.completedItemsCount ?? 0;
+        const tot = archiveData.totalItemsCount ?? comp;
+        const percent = tot > 0 ? Math.round((comp / tot) * 100) : 100;
+
+        const reportText = [
+          `【oxherd 巡更值班交班简报】`,
+          `📅 交班时间：${todayStr} ${timeStr}`,
+          `⏰ 值班班次：${archiveData.shiftName || '全天日常班'}`,
+          `🏢 巡检岗位：共 ${archiveData.postsCount} 个岗位`,
+          `✅ 巡查项核验：${comp}/${tot} 项完成 (${percent}%)`,
+          `📷 现场照片：${archiveData.totalPhotos} 张（已按岗位归类打包）`,
+          `📌 现场状态：巡检完毕，所有巡检记录及留痕凭证均已就绪。`
+        ].join('\n');
+
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(reportText);
+          } else {
+            const tempTa = document.createElement('textarea');
+            tempTa.value = reportText;
+            document.body.appendChild(tempTa);
+            tempTa.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTa);
+          }
+          NativeBridgeService.triggerLightHaptic();
+          copyBtn.textContent = '✅ 已复制！可直接粘贴至微信/钉钉群';
+          copyBtn.style.background = 'var(--success-light)';
+          copyBtn.style.color = 'var(--success)';
+          copyBtn.style.borderColor = 'var(--success)';
+        } catch {
+          alert('简报内容：\n\n' + reportText);
+        }
+      });
+
       const resetBtn = card.querySelector('#finish-reset-btn') as HTMLElement;
       resetBtn?.addEventListener('click', () => {
         close();
