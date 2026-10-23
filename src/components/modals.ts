@@ -145,28 +145,30 @@ export class ModalManager {
                 </div>
               </div>
 
-              <!-- 时段微调 -->
-              ${
-                isScheduled
-                  ? `
-                <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0; font-size:0.75rem;">
-                  <span style="color:var(--text-muted);">巡查区间：</span>
-                  <div style="display:flex; align-items:center; gap:4px;">
-                    <input type="time" class="time-input start-time-input" data-item-id="${item.id}" value="${item.startTime || '09:00'}" 
-                      style="padding:3px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
-                    <span>至</span>
-                    <input type="time" class="time-input end-time-input" data-item-id="${item.id}" value="${item.endTime || '11:30'}" 
-                      style="padding:3px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
-                  </div>
+              <!-- 时段微调 (纯局部展开/收起) -->
+              <div class="item-schedule-row" data-item-id="${item.id}" style="display:${isScheduled ? 'flex' : 'none'}; align-items:center; justify-content:space-between; padding:4px 0; font-size:0.75rem;">
+                <span style="color:var(--text-muted);">巡查区间：</span>
+                <div style="display:flex; align-items:center; gap:4px;">
+                  <input type="time" class="time-input start-time-input" data-item-id="${item.id}" value="${item.startTime || '09:00'}" 
+                    style="padding:3px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
+                  <span>至</span>
+                  <input type="time" class="time-input end-time-input" data-item-id="${item.id}" value="${item.endTime || '11:30'}" 
+                    style="padding:3px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
                 </div>
-              `
-                  : ''
-              }
+              </div>
 
               <!-- 拍照要求开关 -->
               <div style="display:flex; align-items:center; justify-content:space-between; padding-top:4px; font-size:0.75rem;">
                 <span style="color:var(--text-muted);">${item.requirePhoto ? '📷 巡检必须拍照' : '无需拍照'}</span>
-                <div class="toggle-switch ${item.requirePhoto ? 'on' : ''}" data-toggle-photo-item="${item.id}" style="width:36px; height:20px;">
+                <div class="toggle-switch ${item.requirePhoto ? 'on' : ''} toggle-photo-switch" data-item-id="${item.id}" style="width:36px; height:20px; cursor:pointer;">
+                  <div class="toggle-knob" style="width:16px; height:16px;"></div>
+                </div>
+              </div>
+
+              <!-- 自动折叠选项 (仅对非必须拍照条目生效) -->
+              <div class="autofold-row" data-item-id="${item.id}" style="display:${item.requirePhoto ? 'none' : 'flex'}; align-items:center; justify-content:space-between; padding-top:4px; font-size:0.75rem;">
+                <span style="color:var(--text-muted);">📦 完成后自动折叠：</span>
+                <div class="toggle-switch ${item.autoFold ? 'on' : ''} toggle-autofold-switch" data-item-id="${item.id}" style="width:36px; height:20px; cursor:pointer;">
                   <div class="toggle-knob" style="width:16px; height:16px;"></div>
                 </div>
               </div>
@@ -276,101 +278,140 @@ export class ModalManager {
         });
       });
 
-      // 上移条目 [ ▲ 上移 ]
-      card.querySelectorAll('.move-up-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const itemId = btn.getAttribute('data-item-id');
-          if (itemId && DutyStorage.moveItemOrder(task, itemId, 'up')) {
-            NativeBridgeService.triggerLightHaptic();
-            onTaskUpdated();
-            close();
-            ModalManager.openPostSettingsModal(task, onSelectPost, onTaskUpdated);
-          }
+      const bindItemEvents = () => {
+        // 上移条目 [ ▲ 上移 ] (纯局部无缝刷新)
+        card.querySelectorAll('.move-up-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const itemId = btn.getAttribute('data-item-id');
+            if (itemId && DutyStorage.moveItemOrder(task, itemId, 'up')) {
+              NativeBridgeService.triggerLightHaptic();
+              refreshItemsList();
+              onTaskUpdated();
+            }
+          });
         });
-      });
 
-      // 下移条目 [ ▼ 下移 ]
-      card.querySelectorAll('.move-down-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const itemId = btn.getAttribute('data-item-id');
-          if (itemId && DutyStorage.moveItemOrder(task, itemId, 'down')) {
-            NativeBridgeService.triggerLightHaptic();
-            onTaskUpdated();
-            close();
-            ModalManager.openPostSettingsModal(task, onSelectPost, onTaskUpdated);
-          }
+        // 下移条目 [ ▼ 下移 ] (纯局部无缝刷新)
+        card.querySelectorAll('.move-down-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const itemId = btn.getAttribute('data-item-id');
+            if (itemId && DutyStorage.moveItemOrder(task, itemId, 'down')) {
+              NativeBridgeService.triggerLightHaptic();
+              refreshItemsList();
+              onTaskUpdated();
+            }
+          });
         });
-      });
 
-      // 删除条目
-      card.querySelectorAll('.del-item-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const itemId = btn.getAttribute('data-item-id');
-          if (itemId && confirm('确定删除该检查条目吗？')) {
-            task.items = task.items.filter(i => i.id !== itemId);
+        // 删除条目 (纯局部无缝刷新)
+        card.querySelectorAll('.del-item-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const itemId = btn.getAttribute('data-item-id');
+            if (itemId && confirm('确定删除该检查条目吗？')) {
+              task.items = task.items.filter(i => i.id !== itemId);
+              DutyStorage.saveTask(task);
+              NativeBridgeService.triggerLightHaptic();
+              refreshItemsList();
+              onTaskUpdated();
+            }
+          });
+        });
+
+        // 滑块切换类型 (时段巡查 ↔ 常规待办：纯局部平滑滑块切换，绝不关闭或全局刷新弹窗)
+        card.querySelectorAll('.toggle-type-slider').forEach(slider => {
+          slider.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = slider.getAttribute('data-item-id');
+            if (!itemId) return;
+            const item = task.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            const newType = item.itemType === 'SCHEDULED' ? 'STANDARD' : 'SCHEDULED';
+            item.itemType = newType;
+            if (newType === 'SCHEDULED') {
+              if (!item.startTime) item.startTime = '09:00';
+              if (!item.endTime) item.endTime = '11:30';
+            }
             DutyStorage.saveTask(task);
             NativeBridgeService.triggerLightHaptic();
-            onTaskUpdated();
-            close();
-            ModalManager.openPostSettingsModal(task, onSelectPost, onTaskUpdated);
-          }
-        });
-      });
 
-      // 滑块切换类型 (时段巡查 ↔ 常规待办)
-      card.querySelectorAll('.toggle-type-slider').forEach(slider => {
-        slider.addEventListener('click', () => {
-          const itemId = slider.getAttribute('data-item-id');
-          if (itemId && DutyStorage.toggleItemType(task, itemId)) {
-            NativeBridgeService.triggerLightHaptic();
+            slider.setAttribute('data-value', newType);
+            const timeRow = card.querySelector(`.item-schedule-row[data-item-id="${itemId}"]`) as HTMLElement;
+            if (timeRow) {
+              timeRow.style.display = newType === 'SCHEDULED' ? 'flex' : 'none';
+            }
             onTaskUpdated();
-            close();
-            ModalManager.openPostSettingsModal(task, onSelectPost, onTaskUpdated);
-          }
+          });
         });
-      });
 
-      // 微调起止时间
-      card.querySelectorAll('.start-time-input').forEach(input => {
-        input.addEventListener('change', () => {
-          const itemId = input.getAttribute('data-item-id');
-          const startVal = (input as HTMLInputElement).value;
-          const endInput = card.querySelector(`.end-time-input[data-item-id="${itemId}"]`) as HTMLInputElement;
-          const endVal = endInput ? endInput.value : '11:30';
-          if (itemId) {
-            DutyStorage.updateItemScheduleTime(task, itemId, startVal, endVal);
-            onTaskUpdated();
-          }
-        });
-      });
-
-      card.querySelectorAll('.end-time-input').forEach(input => {
-        input.addEventListener('change', () => {
-          const itemId = input.getAttribute('data-item-id');
-          const endVal = (input as HTMLInputElement).value;
-          const startInput = card.querySelector(`.start-time-input[data-item-id="${itemId}"]`) as HTMLInputElement;
-          const startVal = startInput ? startInput.value : '09:00';
-          if (itemId) {
-            DutyStorage.updateItemScheduleTime(task, itemId, startVal, endVal);
-            onTaskUpdated();
-          }
-        });
-      });
-
-      // 切换是否必须拍照
-      card.querySelectorAll('[data-toggle-photo-item]').forEach(toggle => {
-        toggle.addEventListener('click', () => {
-          const itemId = toggle.getAttribute('data-toggle-photo-item');
-          const item = task.items.find(i => i.id === itemId);
-          if (item) {
+        // 拍照开关 (纯局部)
+        card.querySelectorAll('.toggle-photo-switch').forEach(sw => {
+          sw.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = sw.getAttribute('data-item-id');
+            if (!itemId) return;
+            const item = task.items.find(i => i.id === itemId);
+            if (!item) return;
             item.requirePhoto = !item.requirePhoto;
+            if (item.requirePhoto) item.autoFold = false;
             DutyStorage.saveTask(task);
-            toggle.classList.toggle('on', item.requirePhoto);
+            NativeBridgeService.triggerLightHaptic();
+            refreshItemsList();
+            onTaskUpdated();
+          });
+        });
+
+        // 自动折叠开关 (纯局部)
+        card.querySelectorAll('.toggle-autofold-switch').forEach(sw => {
+          sw.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = sw.getAttribute('data-item-id');
+            if (!itemId) return;
+            DutyStorage.toggleItemAutoFold(task, itemId);
+            const item = task.items.find(i => i.id === itemId);
+            sw.classList.toggle('on', !!item?.autoFold);
             NativeBridgeService.triggerLightHaptic();
             onTaskUpdated();
-          }
+          });
         });
-      });
+
+        // 微调起止时间
+        card.querySelectorAll('.start-time-input').forEach(input => {
+          input.addEventListener('change', () => {
+            const itemId = input.getAttribute('data-item-id');
+            const startVal = (input as HTMLInputElement).value;
+            const endInput = card.querySelector(`.end-time-input[data-item-id="${itemId}"]`) as HTMLInputElement;
+            const endVal = endInput ? endInput.value : '11:30';
+            if (itemId) {
+              DutyStorage.updateItemScheduleTime(task, itemId, startVal, endVal);
+              onTaskUpdated();
+            }
+          });
+        });
+
+        card.querySelectorAll('.end-time-input').forEach(input => {
+          input.addEventListener('change', () => {
+            const itemId = input.getAttribute('data-item-id');
+            const endVal = (input as HTMLInputElement).value;
+            const startInput = card.querySelector(`.start-time-input[data-item-id="${itemId}"]`) as HTMLInputElement;
+            const startVal = startInput ? startInput.value : '09:00';
+            if (itemId) {
+              DutyStorage.updateItemScheduleTime(task, itemId, startVal, endVal);
+              onTaskUpdated();
+            }
+          });
+        });
+      };
+
+      const refreshItemsList = () => {
+        const listEl = card.querySelector('#items-mgmt-list');
+        if (listEl) {
+          listEl.innerHTML = renderItemsManagement();
+          bindItemEvents();
+        }
+      };
+
+      bindItemEvents();
     });
   }
 

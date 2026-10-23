@@ -35,6 +35,7 @@ export interface DutyItem {
   completedAt: string | null;
   subItems: DutySubItem[];
   isExpanded?: boolean;
+  autoFold?: boolean; // 非必须拍照条目是否在完成后自动折叠
 }
 
 export interface DutyPost {

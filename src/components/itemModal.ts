@@ -8,12 +8,13 @@ export interface ItemModalResult {
   startTime?: string;
   endTime?: string;
   requirePhoto: boolean;
+  autoFold: boolean;
   subItems: Array<{ id: string; title: string }>;
 }
 
 export class ItemModal {
   /**
-   * 打开添加或编辑条目的专业弹窗（滑块切换属性 + 细分子项配置）
+   * 打开添加或编辑条目的专业弹窗（滑块切换属性 + 细分子项配置 + 自动折叠设置）
    */
   static open(options: {
     item?: DutyItem;
@@ -26,6 +27,7 @@ export class ItemModal {
 
     let currentType: ItemType = initialItem?.itemType || 'STANDARD';
     let requirePhoto = initialItem?.requirePhoto || false;
+    let autoFold = initialItem?.autoFold !== undefined ? initialItem.autoFold : false;
     let tempSubItems: Array<{ id: string; title: string }> = (initialItem?.subItems || []).map(s => ({
       id: s.id,
       title: s.title
@@ -116,6 +118,22 @@ export class ItemModal {
             </div>
           </div>
           <div class="toggle-switch ${requirePhoto ? 'on' : ''}" id="require-photo-toggle">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+
+        <!-- 非必须拍照条目：完成后自动折叠 -->
+        <div style="display:${requirePhoto ? 'none' : 'flex'}; align-items:center; justify-content:space-between; padding:12px; background:var(--bg-card-subtle); border-radius:var(--radius-md); border:1px solid var(--border-color); cursor:pointer;" id="toggle-autofold-card">
+          <div>
+            <div style="font-size:0.875rem; font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:6px;">
+              <span>📦 完成后自动折叠条目</span>
+              <span class="badge-pill" id="autofold-tag" style="display:${autoFold ? 'inline-block' : 'none'}; font-size:0.6875rem; background:var(--accent-light); color:var(--accent);">自动折叠</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+              非必须拍照条目核验完成后自动收起细分子项，保持值班列表紧凑清爽
+            </div>
+          </div>
+          <div class="toggle-switch ${autoFold ? 'on' : ''}" id="autofold-toggle">
             <div class="toggle-knob"></div>
           </div>
         </div>
@@ -216,12 +234,28 @@ export class ItemModal {
         });
       });
 
-      // 拍照开关
+      // 拍照开关与自动折叠联动
+      const autofoldCard = card.querySelector('#toggle-autofold-card') as HTMLElement;
+      const autofoldToggle = card.querySelector('#autofold-toggle') as HTMLElement;
+      const autofoldTag = card.querySelector('#autofold-tag') as HTMLElement;
+
       photoCard?.addEventListener('click', () => {
         requirePhoto = !requirePhoto;
         photoToggle.classList.toggle('on', requirePhoto);
         photoTag.style.display = requirePhoto ? 'flex' : 'none';
         photoTag.classList.toggle('ready', requirePhoto);
+
+        // 仅对非必须拍照条目允许自动折叠
+        if (autofoldCard) {
+          autofoldCard.style.display = requirePhoto ? 'none' : 'flex';
+        }
+        NativeBridgeService.triggerLightHaptic();
+      });
+
+      autofoldCard?.addEventListener('click', () => {
+        autoFold = !autoFold;
+        autofoldToggle.classList.toggle('on', autoFold);
+        if (autofoldTag) autofoldTag.style.display = autoFold ? 'inline-block' : 'none';
         NativeBridgeService.triggerLightHaptic();
       });
 
@@ -348,6 +382,7 @@ export class ItemModal {
           startTime: currentType === 'SCHEDULED' ? startTimeInput.value : undefined,
           endTime: currentType === 'SCHEDULED' ? endTimeInput.value : undefined,
           requirePhoto,
+          autoFold: requirePhoto ? false : autoFold,
           subItems: tempSubItems
         });
       });

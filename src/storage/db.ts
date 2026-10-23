@@ -203,6 +203,7 @@ export class DutyStorage {
             startTime: item.startTime || '',
             endTime: item.endTime || '',
             requirePhoto: !!item.requirePhoto,
+            autoFold: !item.requirePhoto && !!item.autoFold,
             subItems: (item.subItems || []).map(s => s.title)
           }))
       }))
@@ -395,10 +396,83 @@ export class DutyStorage {
     localStorage.setItem(STORAGE_KEYS.ARCHIVES, JSON.stringify(archives.slice(0, 30)));
 
     this.saveTask(task);
-    // 归档并刷新：重置当前活跃任务
-    this.setCurrentTaskId(null);
+
+    // 核心要求：“交班刷新之后条目就没有了，保留”
+    // 自动克隆保留全部岗位、巡查主项、时段、子条目等配置！仅将核验标记复位、清空已归档照片，以供下一班继续使用
+    this.cloneAndResetTaskForNextShift(task);
 
     return archiveRecord;
+  }
+
+  /**
+   * 核心方法：交班后为下一班克隆并重置任务（保留所有条目配置，重置打卡状态）
+   */
+  static cloneAndResetTaskForNextShift(task: DutyTask): DutyTask {
+    const nextTaskId = 'task_' + Date.now();
+    const today = new Date().toISOString().split('T')[0];
+
+    // 清洗旧日期标签，替换为新班次日期
+    const cleanTitle = task.title.replace(/\s*\(\d{4}-\d{2}-\d{2}\)/g, '').trim();
+
+    // 建立新岗位ID映射
+    const postIdMap = new Map<string, string>();
+    const newPosts: DutyPost[] = task.posts.map((p, idx) => {
+      const newPostId = `post_${nextTaskId}_${idx}`;
+      postIdMap.set(p.id, newPostId);
+      return {
+        ...p,
+        id: newPostId,
+        taskId: nextTaskId
+      };
+    });
+
+    const newCurrentPostId = postIdMap.get(task.currentPostId) || (newPosts[0]?.id || '');
+
+    // 完美保留所有配置条目与细项，重置打卡状态与照片
+    const newItems: DutyItem[] = task.items.map((it, itIdx) => {
+      const mappedPostId = postIdMap.get(it.postId) || (newPosts[0]?.id || '');
+      const newItemId = `item_${nextTaskId}_${itIdx}`;
+      return {
+        ...it,
+        id: newItemId,
+        postId: mappedPostId,
+        isCompleted: false,
+        completedAt: null,
+        photos: [], // 照片已打包归档至 ZIP，新班次清空
+        isExpanded: it.autoFold ? false : true, // 若开启自动折叠则默认收起
+        subItems: (it.subItems || []).map((s, sIdx) => ({
+          ...s,
+          id: `sub_${newItemId}_${sIdx}`,
+          itemId: newItemId,
+          isCompleted: false,
+          completedAt: null
+        }))
+      };
+    });
+
+    const nextTask: DutyTask = {
+      id: nextTaskId,
+      title: `${cleanTitle || '值班巡检'} (${today})`,
+      date: today,
+      shiftName: task.shiftName,
+      status: 'IN_PROGRESS',
+      createdAt: new Date().toISOString(),
+      currentPostId: newCurrentPostId,
+      posts: newPosts,
+      items: newItems
+    };
+
+    this.saveTask(nextTask);
+    this.setCurrentTaskId(nextTaskId);
+    return nextTask;
+  }
+
+  static toggleItemAutoFold(task: DutyTask, itemId: string): boolean {
+    const item = task.items.find(i => i.id === itemId);
+    if (!item) return false;
+    item.autoFold = !item.autoFold;
+    this.saveTask(task);
+    return true;
   }
 
   static getArchives(): DutyArchive[] {

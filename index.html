@@ -10,13 +10,17 @@
 </head>
 <body>
   <div id="app">
-    <!-- 顶栏导航 -->
+    <!-- 顶栏导航（已去除应用名称与图标，紧凑高效） -->
     <header class="app-header">
       <div class="header-top">
-        <div class="brand-title">
-          <img src="/lantern-icon.svg" width="26" height="26" style="border-radius:6px; box-shadow:var(--shadow-sm);" alt="提灯图标" />
-          <span>oxherd</span>
-          <span class="brand-badge" id="shift-badge">全天班</span>
+        <div class="header-task-info">
+          <div class="task-title-row">
+            <span class="task-title-text" id="task-title-display">值班巡检</span>
+            <span class="brand-badge" id="shift-badge">全天班</span>
+          </div>
+          <div class="task-progress-mini-stats" id="task-percentage-display">
+            0/0 项已核验 (0%)
+          </div>
         </div>
         <div class="header-actions">
           <button class="icon-btn" id="new-task-btn" title="新建值班任务" aria-label="新建值班">
@@ -36,22 +40,17 @@
         </div>
       </div>
 
-      <!-- 重点：岗位水平流体滚动切换栏 -->
+      <!-- 岗位水平流体滚动切换栏 -->
       <nav class="posts-nav-scroll" id="posts-nav-scroll">
         <!-- 动态渲染岗位胶囊 -->
       </nav>
+
+      <!-- 顶栏贴合式 3px 微型流体进度条 -->
+      <div class="header-progress-track">
+        <div class="header-progress-fill" id="task-progress-fill" style="width: 0%;"></div>
+      </div>
     </header>
 
-    <!-- 总体进度看板 -->
-    <section class="progress-card">
-      <div class="progress-header">
-        <span class="progress-title" id="task-title-display">值班巡查</span>
-        <span class="progress-stats" id="task-percentage-display">0%</span>
-      </div>
-      <div class="progress-track">
-        <div class="progress-fill" id="task-progress-fill" style="width: 0%;"></div>
-      </div>
-    </section>
 
     <!-- 巡检条目流体主列表 -->
     <main class="items-container" id="items-list">

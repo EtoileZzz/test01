@@ -6,11 +6,20 @@ import { ItemModal } from './components/itemModal';
 import { bindCardSwipe } from './gestures/swipeTracker';
 import type { DutyTask, DutyItem, InspectionPhoto } from './models/types';
 
+interface UndoSnapshot {
+  itemId: string;
+  itemTitle: string;
+  wasCompleted: boolean;
+  completedAt: string | null;
+  wasExpanded: boolean;
+  subItems: Array<{ id: string; isCompleted: boolean; completedAt: string | null }>;
+}
+
 class OxherdApp {
   private currentTask: DutyTask | null = null;
   private pendingPhotoItemId: string | null = null;
   private undoTimer: any = null;
-  private lastSwipedItemInfo: { item: DutyItem; wasCompleted: boolean; oldTimestamp: string | null } | null = null;
+  private undoSnapshot: UndoSnapshot | null = null;
 
   constructor() {
     this.initTheme();
@@ -74,7 +83,7 @@ class OxherdApp {
       });
     });
 
-    // 3. 底部主添加条目按钮（彻底抛弃 window.prompt，调用专业 ItemModal）
+    // 3. 底部主添加条目按钮（调用 ItemModal，支持时段、拍照、自动折叠与多行批量子项）
     const addItemBtn = document.getElementById('open-add-item-modal-btn');
     addItemBtn?.addEventListener('click', () => {
       if (!this.currentTask) return;
@@ -94,6 +103,7 @@ class OxherdApp {
             startTime: result.startTime,
             endTime: result.endTime,
             requirePhoto: result.requirePhoto,
+            autoFold: result.autoFold,
             photos: [],
             isCompleted: false,
             completedAt: null,
@@ -155,19 +165,96 @@ class OxherdApp {
       reader.readAsDataURL(file);
     });
 
-    // 6. 撤销按钮
+    // 6. 撤销按钮交互（修复 touch / pointerdown 支持）
     const undoBtn = document.getElementById('undo-action-btn');
-    undoBtn?.addEventListener('click', () => {
-      if (this.lastSwipedItemInfo && this.currentTask) {
-        const { item, wasCompleted, oldTimestamp } = this.lastSwipedItemInfo;
-        item.isCompleted = wasCompleted;
-        item.completedAt = oldTimestamp;
-        DutyStorage.saveTask(this.currentTask);
-        this.hideUndoToast();
-        NativeBridgeService.triggerLightHaptic();
-        this.render();
-      }
+    const onUndoTrigger = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.performUndo();
+    };
+    undoBtn?.addEventListener('pointerdown', onUndoTrigger);
+    undoBtn?.addEventListener('click', onUndoTrigger);
+  }
+
+  // ── 记录高精度撤销快照 ──────────────────────────────────────
+  private recordUndoSnapshot(item: DutyItem): void {
+    this.undoSnapshot = {
+      itemId: item.id,
+      itemTitle: item.title,
+      wasCompleted: item.isCompleted,
+      completedAt: item.completedAt,
+      wasExpanded: item.isExpanded !== false,
+      subItems: (item.subItems || []).map(s => ({
+        id: s.id,
+        isCompleted: s.isCompleted,
+        completedAt: s.completedAt
+      }))
+    };
+  }
+
+  // ── 执行撤销操作（完美恢复主项及所有子项状态） ────────────────
+  private performUndo(): void {
+    if (!this.undoSnapshot || !this.currentTask) return;
+    const snapshot = this.undoSnapshot;
+    const item = this.currentTask.items.find(i => i.id === snapshot.itemId);
+    if (item) {
+      item.isCompleted = snapshot.wasCompleted;
+      item.completedAt = snapshot.completedAt;
+      item.isExpanded = snapshot.wasExpanded;
+
+      snapshot.subItems.forEach(savedSub => {
+        const sub = item.subItems.find(s => s.id === savedSub.id);
+        if (sub) {
+          sub.isCompleted = savedSub.isCompleted;
+          sub.completedAt = savedSub.completedAt;
+        }
+      });
+
+      DutyStorage.saveTask(this.currentTask);
+      this.undoSnapshot = null;
+      this.hideUndoToast();
+      NativeBridgeService.triggerLightHaptic();
+      this.render();
+    }
+  }
+
+  // ── 标记条目完成（处理自动折叠与撤销捕获） ──────────────────
+  private completeItem(item: DutyItem): void {
+    if (!this.currentTask) return;
+    this.recordUndoSnapshot(item);
+
+    item.isCompleted = true;
+    item.completedAt = new Date().toISOString();
+    item.subItems.forEach(sub => {
+      sub.isCompleted = true;
+      sub.completedAt = item.completedAt;
     });
+
+    // 核心要求：“每个条目可以设定是否自动折叠（不是必须要求拍照的条目）”
+    if (!item.requirePhoto && item.autoFold) {
+      item.isExpanded = false;
+    }
+
+    DutyStorage.saveTask(this.currentTask);
+    this.showUndoToast(item.title);
+    this.render();
+  }
+
+  // ── 取消条目完成 ────────────────────────────────────────────
+  private uncheckItem(item: DutyItem): void {
+    if (!this.currentTask) return;
+    this.recordUndoSnapshot(item);
+
+    item.isCompleted = false;
+    item.completedAt = null;
+    item.subItems.forEach(sub => {
+      sub.isCompleted = false;
+      sub.completedAt = null;
+    });
+    item.isExpanded = true;
+
+    DutyStorage.saveTask(this.currentTask);
+    this.render();
   }
 
   // ── 绑定 1 秒长按蓄力交班（用户要求：设置为 1 秒） ─────────────
@@ -217,7 +304,7 @@ class OxherdApp {
     handoverBtn.addEventListener('pointercancel', cancelHold);
   }
 
-  // ── 执行交班：专门打包现场照片归档并复位（无需文本报告） ───────────
+  // ── 执行交班：专门打包现场照片归档并就绪下一班（完整保留条目） ──────
   private async executeHandover(): Promise<void> {
     if (!this.currentTask) return;
 
@@ -230,14 +317,16 @@ class OxherdApp {
       }
     }
 
-    // 核心要求：“不用交班报告，只需要把值班过程中的照片分类存储到指定文件夹即可，确认填写完报告后打包归档”
+    // 核心要求：“交班刷新之后条目就没有了，保留”
+    // completeAndArchivePhotos 内部自动将照片打包归档，并为下一班克隆保留所有岗位与条目
     const archive = await DutyStorage.completeAndArchivePhotos(this.currentTask);
 
     ModalManager.openPhotosArchiveCompletedModal({
       totalPhotos: archive.totalPhotos,
       postsCount: this.currentTask.posts.length,
       onResetAndRestart: () => {
-        // 核心要求：“归档并刷新，支持下一次使用”
+        // 核心要求：“交班刷新之后条目就没有了，保留”
+        // 重新获取并渲染克隆好的新任务（条目全部完整保留，复位打卡）
         this.initTask();
         this.render();
       }
@@ -250,13 +339,13 @@ class OxherdApp {
     const text = document.getElementById('undo-text');
     if (!toast || !text) return;
 
-    text.textContent = `已核验划除：${title.substring(0, 12)}...`;
+    text.textContent = `已完成：${title.substring(0, 10)}...`;
     toast.classList.add('show');
 
     if (this.undoTimer) clearTimeout(this.undoTimer);
     this.undoTimer = setTimeout(() => {
       this.hideUndoToast();
-    }, 3200);
+    }, 4000);
   }
 
   private hideUndoToast(): void {
@@ -277,21 +366,23 @@ class OxherdApp {
     const shiftBadge = document.getElementById('shift-badge');
     if (shiftBadge) shiftBadge.textContent = task.shiftName;
 
-    // 渲染顶栏水平滚动岗位胶囊
-    this.renderPostsNavScroll(currentPost);
-
     const taskTitleDisplay = document.getElementById('task-title-display');
-    if (taskTitleDisplay) taskTitleDisplay.textContent = task.title;
+    if (taskTitleDisplay) taskTitleDisplay.textContent = task.title.replace(/\s*\(\d{4}-\d{2}-\d{2}\)/g, '');
 
     const totalTaskItems = task.items.length;
     const totalCompleted = task.items.filter(i => i.isCompleted).length;
     const percentage = totalTaskItems > 0 ? Math.round((totalCompleted / totalTaskItems) * 100) : 0;
 
     const percentageDisplay = document.getElementById('task-percentage-display');
-    if (percentageDisplay) percentageDisplay.textContent = `${percentage}% (${totalCompleted}/${totalTaskItems})`;
+    if (percentageDisplay) {
+      percentageDisplay.textContent = `${totalCompleted}/${totalTaskItems} 项已核验 (${percentage}%)`;
+    }
 
     const progressFill = document.getElementById('task-progress-fill');
     if (progressFill) progressFill.style.width = `${percentage}%`;
+
+    // 渲染顶栏水平滚动岗位胶囊
+    this.renderPostsNavScroll(currentPost);
 
     const container = document.getElementById('items-list');
     if (!container) return;
@@ -300,8 +391,8 @@ class OxherdApp {
 
     if (currentPostItems.length === 0) {
       container.innerHTML = `
-        <div style="text-align:center; padding:60px 20px; color:var(--text-muted);">
-          <div style="font-size:2.8rem; margin-bottom:12px;">🏮</div>
+        <div style="text-align:center; padding:70px 20px; color:var(--text-muted);">
+          <div style="font-size:3rem; margin-bottom:12px;">🏮</div>
           <div style="font-weight:700; font-size:1.0625rem; color:var(--text-main);">当前岗位暂无巡检条目</div>
           <div style="font-size:0.8125rem; margin-top:6px; color:var(--text-muted);">
             点击下方「添加巡查条目」开始录入，支持时段巡查、拍照留痕与多行细项
@@ -315,7 +406,7 @@ class OxherdApp {
       .map(item => this.renderItemCardHtml(item))
       .join('');
 
-    // 绑定条目卡片交互（1:1 极致跟手滑动、左右双向划除、编辑弹窗与拍照）
+    // 绑定条目卡片交互（1:1 左右双向划除、复选框、编辑与拍照）
     currentPostItems.forEach(item => {
       const cardEl = container.querySelector(`[data-item-card-id="${item.id}"]`) as HTMLElement;
       if (!cardEl) return;
@@ -324,20 +415,7 @@ class OxherdApp {
       bindCardSwipe(cardEl, {
         threshold: 65,
         onSwipeComplete: () => {
-          this.lastSwipedItemInfo = {
-            item,
-            wasCompleted: item.isCompleted,
-            oldTimestamp: item.completedAt
-          };
-          item.isCompleted = true;
-          item.completedAt = new Date().toISOString();
-          item.subItems.forEach(sub => {
-            sub.isCompleted = true;
-            sub.completedAt = item.completedAt;
-          });
-          DutyStorage.saveTask(task);
-          this.showUndoToast(item.title);
-          this.render();
+          this.completeItem(item);
         }
       });
 
@@ -345,15 +423,11 @@ class OxherdApp {
       const checkbox = cardEl.querySelector('.item-checkbox') as HTMLElement;
       checkbox?.addEventListener('click', (e) => {
         e.stopPropagation();
-        item.isCompleted = !item.isCompleted;
-        item.completedAt = item.isCompleted ? new Date().toISOString() : null;
-        item.subItems.forEach(sub => {
-          sub.isCompleted = item.isCompleted;
-          sub.completedAt = item.completedAt;
-        });
-        DutyStorage.saveTask(task);
-        NativeBridgeService.triggerLightHaptic();
-        this.render();
+        if (item.isCompleted) {
+          this.uncheckItem(item);
+        } else {
+          this.completeItem(item);
+        }
       });
 
       // 编辑条目（点击编辑按钮或标题进入 ItemModal）
@@ -370,6 +444,7 @@ class OxherdApp {
             item.startTime = result.startTime;
             item.endTime = result.endTime;
             item.requirePhoto = result.requirePhoto;
+            item.autoFold = result.autoFold;
 
             const existingSubMap = new Map(item.subItems.map(s => [s.id, s]));
             item.subItems = result.subItems.map(s => {
@@ -408,24 +483,30 @@ class OxherdApp {
         this.render();
       });
 
-      // 点击或划去细分子条目（细项全部完成后主条目自动完成）
+      // 点击或划去细分子条目
       cardEl.querySelectorAll('.subitem-row').forEach(subRow => {
         subRow.addEventListener('click', (e) => {
           e.stopPropagation();
           const subId = subRow.getAttribute('data-sub-id');
           const sub = item.subItems.find(s => s.id === subId);
           if (sub) {
+            this.recordUndoSnapshot(item);
             sub.isCompleted = !sub.isCompleted;
             sub.completedAt = sub.isCompleted ? new Date().toISOString() : null;
 
             // 划完所有细项后，主条目自动设置为完成
             const allSubDone = item.subItems.every(s => s.isCompleted);
-            if (allSubDone) {
+            if (allSubDone && !item.isCompleted) {
               item.isCompleted = true;
               item.completedAt = new Date().toISOString();
+              if (!item.requirePhoto && item.autoFold) {
+                item.isExpanded = false;
+              }
+              this.showUndoToast(item.title);
             } else if (!sub.isCompleted && item.isCompleted) {
               item.isCompleted = false;
               item.completedAt = null;
+              item.isExpanded = true;
             }
 
             DutyStorage.saveTask(task);
@@ -541,6 +622,7 @@ class OxherdApp {
     const subCount = item.subItems.length;
     const subDoneCount = item.subItems.filter(s => s.isCompleted).length;
     const isScheduled = item.itemType === 'SCHEDULED';
+    const isAutoFolded = isDone && !item.requirePhoto && item.autoFold && !item.isExpanded;
 
     const photosThumbHtml = hasPhotos
       ? item.photos
@@ -650,13 +732,21 @@ class OxherdApp {
                 `
                     : ''
                 }
+
+                ${
+                  !item.requirePhoto && item.autoFold
+                    ? `
+                  <span style="font-size:0.6875rem; color:var(--text-sub); border:1px solid var(--border-color); padding:1px 5px; border-radius:4px;">自动折叠</span>
+                `
+                    : ''
+                }
               </div>
 
               ${
                 subCount > 0
                   ? `
                 <button class="subitems-toggle-btn">
-                  <span>${item.isExpanded ? '▾ 收起细项' : '▸ 展开核查细项'} (${subDoneCount}/${subCount})</span>
+                  <span>${item.isExpanded ? '▾ 收起细项' : '▸ 展开核查细项'} (${subDoneCount}/${subCount}) ${isAutoFolded ? '· 已自动折叠' : ''}</span>
                 </button>
               `
                   : ''
