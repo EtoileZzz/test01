@@ -57,7 +57,7 @@ export class ModalManager {
     return close;
   }
 
-  // ── 岗位在设置中切换、条目自由排列、属性转换与时段微调 ─────────
+  // ── 岗位在设置中管理（增删、改名、条目排序与时段调整） ───────────
   static openPostSettingsModal(
     task: DutyTask,
     onSelectPost: (postId: string) => void,
@@ -75,17 +75,22 @@ export class ModalManager {
           return `
             <div class="post-switch-item ${isActive ? 'active' : ''}" data-post-id="${post.id}">
               <div class="post-item-info">
-                <div class="post-item-title">${post.name} ${isActive ? '📍 (当前值班中)' : ''}</div>
-                <div class="post-item-sub">${items.length} 个条目 · 已核验 ${done} 个</div>
+                <div class="post-item-title">${post.name} ${isActive ? '📍 (当前岗位)' : ''}</div>
+                <div class="post-item-sub">${items.length} 个巡检条目 · 已核验 ${done} 个</div>
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
-                <span class="brand-badge">${items.length > 0 ? Math.round((done / items.length) * 100) : 0}%</span>
-                <button class="icon-btn edit-post-btn" data-post-id="${post.id}" title="重命名" style="width:28px; height:28px;">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 20h9"></path>
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                  </svg>
+                <button class="icon-btn edit-post-btn" data-post-id="${post.id}" title="重命名岗位" style="width:28px; height:28px;">
+                  ✏️
                 </button>
+                ${
+                  task.posts.length > 1
+                    ? `
+                  <button class="icon-btn del-post-btn" data-post-id="${post.id}" title="删除岗位" style="width:28px; height:28px; color:var(--danger);">
+                    🗑️
+                  </button>
+                `
+                    : ''
+                }
               </div>
             </div>
           `;
@@ -96,8 +101,8 @@ export class ModalManager {
     const renderItemsManagement = () => {
       if (!currentPost || postItems.length === 0) {
         return `
-          <div style="text-align:center; padding:16px; color:var(--text-muted); font-size:0.8125rem;">
-            当前岗位暂无巡检条目，请在下方点击「+ 添加新条目」自由创建
+          <div style="text-align:center; padding:18px 10px; color:var(--text-muted); font-size:0.8125rem;">
+            当前岗位暂无条目，请在主界面点击「添加巡查条目」开始录入
           </div>
         `;
       }
@@ -110,47 +115,42 @@ export class ModalManager {
 
           return `
             <div class="settings-group" style="padding:10px 12px; margin-bottom:8px; border:1px solid var(--border-color); background:var(--bg-card);" data-item-id="${item.id}">
-              <!-- 标题行与排序移动 -->
               <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
                 <div style="font-weight:600; font-size:0.875rem; color:var(--text-main); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                   <span style="color:var(--text-muted); font-size:0.75rem; margin-right:4px;">#${idx + 1}</span>
                   ${item.title}
                 </div>
                 <div style="display:flex; align-items:center; gap:4px;">
-                  <!-- 上移 -->
-                  <button class="icon-btn move-up-btn" data-item-id="${item.id}" ${isFirst ? 'disabled style="opacity:0.3;"' : ''} style="width:28px; height:28px;" title="上移">
+                  <button class="icon-btn move-up-btn" data-item-id="${item.id}" ${isFirst ? 'disabled style="opacity:0.25;"' : ''} style="width:28px; height:28px;" title="上移">
                     ▲
                   </button>
-                  <!-- 下移 -->
-                  <button class="icon-btn move-down-btn" data-item-id="${item.id}" ${isLast ? 'disabled style="opacity:0.3;"' : ''} style="width:28px; height:28px;" title="下移">
+                  <button class="icon-btn move-down-btn" data-item-id="${item.id}" ${isLast ? 'disabled style="opacity:0.25;"' : ''} style="width:28px; height:28px;" title="下移">
                     ▼
                   </button>
-                  <!-- 删除条目 -->
                   <button class="icon-btn del-item-btn" data-item-id="${item.id}" style="width:28px; height:28px; color:var(--danger);" title="删除">
                     ✕
                   </button>
                 </div>
               </div>
 
-              <!-- 属性转换：常规待办 ↔ 时段巡查 -->
-              <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-top:1px dashed var(--border-color); border-bottom:1px dashed var(--border-color); margin:6px 0;">
-                <div style="font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
-                  <span>条目属性：</span>
-                  <span class="brand-badge" style="background:${isScheduled ? 'rgba(56, 189, 248, 0.15)' : 'var(--bg-card-subtle)'}; color:${isScheduled ? 'var(--accent)' : 'var(--text-muted)'};">
-                    ${isScheduled ? '⏰ 时段巡查' : '📝 常规待办'}
-                  </span>
+              <!-- 属性转换 (时段巡查 ↔ 常规待办：滑块切换) -->
+              <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-top:1px dashed var(--border-color); border-bottom:1px dashed var(--border-color); margin:6px 0;">
+                <div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">
+                  条目属性：
                 </div>
-                <button class="icon-btn toggle-type-btn" data-item-id="${item.id}" style="width:auto; height:26px; padding:0 8px; font-size:0.6875rem; font-weight:600;">
-                  🔄 切换为${isScheduled ? '常规待办' : '时段巡查'}
-                </button>
+                <div class="mini-slider-switch toggle-type-slider" data-item-id="${item.id}" data-value="${isScheduled ? 'SCHEDULED' : 'STANDARD'}">
+                  <div class="mini-slider-thumb"></div>
+                  <div class="mini-slider-label" data-type="STANDARD">常规待办</div>
+                  <div class="mini-slider-label" data-type="SCHEDULED">时段巡查</div>
+                </div>
               </div>
 
-              <!-- 若为时段巡查，显示时间微调 -->
+              <!-- 时段微调 -->
               ${
                 isScheduled
                   ? `
                 <div style="display:flex; align-items:center; justify-content:space-between; padding:4px 0; font-size:0.75rem;">
-                  <span style="color:var(--text-muted);">巡查时段：</span>
+                  <span style="color:var(--text-muted);">巡查区间：</span>
                   <div style="display:flex; align-items:center; gap:4px;">
                     <input type="time" class="time-input start-time-input" data-item-id="${item.id}" value="${item.startTime || '09:00'}" 
                       style="padding:3px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
@@ -177,14 +177,14 @@ export class ModalManager {
     };
 
     const contentHtml = `
-      <!-- 岗位切换 -->
+      <!-- 岗位管理 -->
       <div class="settings-group">
-        <div class="settings-group-title">🎯 切换值班岗位（点击即换）</div>
+        <div class="settings-group-title">🎯 巡查岗位与楼层管理</div>
         <div id="posts-switch-list" style="display:flex; flex-direction:column; gap:8px;">
           ${renderPosts()}
         </div>
         <div style="display:flex; gap:8px; margin-top:8px;">
-          <input type="text" id="new-post-name-input" placeholder="输入新岗位名称 (如: 3楼阅览室)" 
+          <input type="text" id="new-post-name-input" placeholder="输入新岗位 (如: 3楼阅览室)" 
             style="flex:1; padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.875rem;" />
           <button class="icon-btn" id="add-post-btn" style="width:auto; padding:0 14px; font-weight:600; font-size:0.8125rem; background:var(--accent); color:white; border:none;">
             + 新增岗位
@@ -192,33 +192,24 @@ export class ModalManager {
         </div>
       </div>
 
-      <!-- 条目自由排列与显示管理 -->
+      <!-- 当前岗位的条目排序与管理 -->
       <div class="settings-group" style="margin-top:12px;">
-        <div class="settings-group-title">📐 [${currentPost?.name || '当前岗位'}] 条目排列与属性管理</div>
+        <div class="settings-group-title">📐 [${currentPost?.name || '当前岗位'}] 条目排序与属性管理</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">
-          支持自由上移/下移排序、时段巡查与常规待办一键转换、起止时间快捷微调。
+          自由上移/下移排序、转换时段巡查与微调时间，实时保存生效。
         </div>
 
         <div id="items-mgmt-list">
           ${renderItemsManagement()}
         </div>
-
-        <!-- 自由新增条目 -->
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <input type="text" id="new-item-title-input" placeholder="添加新巡查条目名称..." 
-            style="flex:1; padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.875rem;" />
-          <button class="icon-btn" id="add-item-btn" style="width:auto; padding:0 14px; font-weight:600; font-size:0.8125rem; background:var(--accent); color:white; border:none;">
-            + 添加条目
-          </button>
-        </div>
       </div>
     `;
 
-    const close = this.openSheet('岗位与条目显示管理', contentHtml, (card) => {
+    const close = this.openSheet('岗位与条目管理', contentHtml, (card) => {
       // 切换岗位
       card.querySelectorAll('.post-switch-item').forEach(el => {
         el.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.edit-post-btn')) return;
+          if ((e.target as HTMLElement).closest('.edit-post-btn') || (e.target as HTMLElement).closest('.del-post-btn')) return;
           const postId = el.getAttribute('data-post-id');
           if (postId) {
             task.currentPostId = postId;
@@ -267,6 +258,24 @@ export class ModalManager {
         });
       });
 
+      // 删除岗位
+      card.querySelectorAll('.del-post-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const postId = btn.getAttribute('data-post-id');
+          if (postId && confirm('确定删除该岗位及其包含的所有检查条目吗？')) {
+            task.posts = task.posts.filter(p => p.id !== postId);
+            task.items = task.items.filter(i => i.postId !== postId);
+            if (task.currentPostId === postId && task.posts.length > 0) {
+              task.currentPostId = task.posts[0].id;
+            }
+            DutyStorage.saveTask(task);
+            onTaskUpdated();
+            close();
+          }
+        });
+      });
+
       // 上移条目 [ ▲ 上移 ]
       card.querySelectorAll('.move-up-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -308,10 +317,10 @@ export class ModalManager {
         });
       });
 
-      // 一键转换属性 (时段巡查 ↔ 常规待办)
-      card.querySelectorAll('.toggle-type-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const itemId = btn.getAttribute('data-item-id');
+      // 滑块切换类型 (时段巡查 ↔ 常规待办)
+      card.querySelectorAll('.toggle-type-slider').forEach(slider => {
+        slider.addEventListener('click', () => {
+          const itemId = slider.getAttribute('data-item-id');
           if (itemId && DutyStorage.toggleItemType(task, itemId)) {
             NativeBridgeService.triggerLightHaptic();
             onTaskUpdated();
@@ -348,7 +357,7 @@ export class ModalManager {
         });
       });
 
-      // 切换是否拍照
+      // 切换是否必须拍照
       card.querySelectorAll('[data-toggle-photo-item]').forEach(toggle => {
         toggle.addEventListener('click', () => {
           const itemId = toggle.getAttribute('data-toggle-photo-item');
@@ -362,43 +371,17 @@ export class ModalManager {
           }
         });
       });
-
-      // 添加新条目
-      const addItemBtn = card.querySelector('#add-item-btn') as HTMLElement;
-      const itemTitleInput = card.querySelector('#new-item-title-input') as HTMLInputElement;
-      addItemBtn?.addEventListener('click', () => {
-        const title = itemTitleInput.value.trim();
-        if (!title || !currentPost) return;
-        const newItem: DutyItem = {
-          id: `item_${currentPost.id}_${Date.now()}`,
-          postId: currentPost.id,
-          title,
-          itemType: 'STANDARD',
-          requirePhoto: false,
-          photos: [],
-          isCompleted: false,
-          completedAt: null,
-          subItems: [],
-          isExpanded: false
-        };
-        task.items.push(newItem);
-        DutyStorage.saveTask(task);
-        NativeBridgeService.triggerLightHaptic();
-        onTaskUpdated();
-        close();
-        ModalManager.openPostSettingsModal(task, onSelectPost, onTaskUpdated);
-      });
     });
   }
 
-  // ── 系统设置：通知唤醒、开机保活、协同外链、JSON导入导出 ────────
+  // ── 应用设置与配置中心 ──────────────────────────────────────────
   static async openSystemSettingsModal(task: DutyTask | null, onSettingsChanged: () => void): Promise<void> {
     const settings = DutyStorage.getSettings();
     const isBatteryIgnored = await NativeBridgeService.isBatteryOptimizationIgnored();
     const vendorInfo = await NativeBridgeService.getVendorInfo();
 
     const contentHtml = `
-      <!-- 主题模式设置 -->
+      <!-- 外观主题 -->
       <div class="settings-group">
         <div class="settings-group-title">🎨 外观主题模式</div>
         <div class="settings-row">
@@ -414,26 +397,26 @@ export class ModalManager {
         </div>
       </div>
 
-      <!-- 交班协同外链设置 -->
+      <!-- 预设交班表单/协同外链 -->
       <div class="settings-group">
-        <div class="settings-group-title">🔗 交班协同外链与快捷跳转</div>
+        <div class="settings-group-title">🔗 值班填报链接与协同跳转</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">
-          预设值班交班链接或协同软件（如 TIM/微信），确认交班后一键直接跳转汇报。
+          在此预设单位值班填报链接（如腾讯文档、飞书、问卷等），巡查完成时可一键跳转填写。
         </div>
-        <input type="url" id="handover-url-input" value="${settings.handoverExternalUrl || ''}" placeholder="粘贴交班表单/文档链接 (https://...)" 
+        <input type="url" id="handover-url-input" value="${settings.handoverExternalUrl || ''}" placeholder="粘贴值班表单/链接 (https://...)" 
           style="width:100%; padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.8125rem;" />
         <div style="display:flex; gap:8px; margin-top:6px;">
           <button class="icon-btn save-handover-url-btn" style="flex:1; height:34px; font-size:0.75rem; font-weight:600; background:var(--accent); color:white; border:none;">
-            💾 保存交班外链设置
+            💾 保存填报链接
           </button>
         </div>
       </div>
 
-      <!-- 配置文件导入导出 -->
+      <!-- 配置文件标准 JSON 导入导出 -->
       <div class="settings-group">
         <div class="settings-group-title">📦 配置文件导入导出（标准 JSON）</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;">
-          采用标准 JSON 封装所有岗位、主项、时段及子条目，支持保存至手机或直接分享到微信/TIM。
+          采用标准 JSON 封装所有岗位、主项、时段及子条目，支持保存至手机文件或一键分享到微信/TIM。
         </div>
         <div style="display:flex; flex-direction:column; gap:8px;">
           <div style="display:flex; gap:8px;">
@@ -441,7 +424,7 @@ export class ModalManager {
               💾 保存至手机文件
             </button>
             <button class="icon-btn" id="share-json-btn" style="flex:1; height:38px; font-size:0.8125rem; font-weight:600; background:var(--accent-light); color:var(--accent);">
-              📲 一键分享到微信/TIM
+              📲 一键分享微信/TIM
             </button>
           </div>
           <button class="icon-btn" id="import-json-btn" style="width:100%; height:38px; font-size:0.8125rem; font-weight:600; background:var(--bg-elevated);">
@@ -451,9 +434,9 @@ export class ModalManager {
         </div>
       </div>
 
-      <!-- 通知唤醒全参数自定义 -->
+      <!-- 通知唤醒全参数 -->
       <div class="settings-group">
-        <div class="settings-group-title">🔔 通知唤醒全参数设置</div>
+        <div class="settings-group-title">🔔 通知唤醒全参数自定义</div>
         
         <div class="settings-row">
           <div class="settings-row-label">
@@ -563,6 +546,7 @@ export class ModalManager {
           DutyStorage.saveSettings({ theme: val });
           card.querySelectorAll('#theme-pills .pill-option').forEach(p => p.classList.remove('active'));
           pill.classList.add('active');
+          NativeBridgeService.syncStatusBarTheme(val);
           onSettingsChanged();
         });
       });
@@ -574,53 +558,30 @@ export class ModalManager {
         const url = urlInput.value.trim();
         DutyStorage.saveSettings({ handoverExternalUrl: url });
         NativeBridgeService.triggerLightHaptic();
-        alert('交班协同外链已保存！');
+        alert('值班填报链接已保存！');
       });
 
-      // 保存至手机文件 (JSON)
+      // 保存至手机文件 (JSON，绝不用剪贴板)
       const exportFileBtn = card.querySelector('#export-json-file-btn');
-      exportFileBtn?.addEventListener('click', () => {
+      exportFileBtn?.addEventListener('click', async () => {
         if (!task) return;
         const json = DutyStorage.exportDutyConfig(task);
-        const blob = new Blob([json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `oxherd_duty_config_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const fileName = `oxherd_duty_config_${new Date().toISOString().split('T')[0]}.json`;
         NativeBridgeService.triggerLightHaptic();
+        await NativeBridgeService.saveConfigFile(fileName, json);
       });
 
-      // 一键分享到微信 / TIM
+      // 一键分享到微信 / TIM（原生 Intent 调起应用分享，绝不用剪贴板）
       const shareBtn = card.querySelector('#share-json-btn');
       shareBtn?.addEventListener('click', async () => {
         if (!task) return;
         const json = DutyStorage.exportDutyConfig(task);
-        const fileName = `oxherd_config_${task.title.substring(0, 10)}.json`;
-
-        if (navigator.share) {
-          try {
-            const file = new File([json], fileName, { type: 'application/json' });
-            await navigator.share({
-              title: 'oxherd 值班巡检配置文件',
-              text: `分享「${task.title}」值班配置文件，直接在 oxherd 中导入即可。`,
-              files: [file]
-            });
-            return;
-          } catch (e) {
-            console.log('文件分享取消或失败，降级为文本分享', e);
-          }
-        }
-
-        // 剪贴板兜底
-        navigator.clipboard.writeText(json).then(() => {
-          alert('配置 JSON 已复制到剪贴板！可直接粘贴发送给同事在微信/TIM中使用。');
-          NativeBridgeService.triggerLightHaptic();
-        });
+        const fileName = `oxherd_duty_config_${new Date().toISOString().split('T')[0]}.json`;
+        NativeBridgeService.triggerLightHaptic();
+        await NativeBridgeService.shareConfigFile(fileName, json);
       });
 
-      // 选取 JSON 导入（带合法性统计预览与覆盖确认）
+      // 导入 JSON
       const importBtn = card.querySelector('#import-json-btn');
       const fileInput = card.querySelector('#json-file-input') as HTMLInputElement;
       importBtn?.addEventListener('click', () => fileInput.click());
@@ -651,7 +612,7 @@ export class ModalManager {
 
           if (confirm(confirmMsg)) {
             DutyStorage.applyImportedConfig(result.data);
-            alert('配置已成功导入覆盖！页面即将刷新呈现。');
+            alert('配置已成功导入覆盖！页面即将刷新。');
             window.location.reload();
           }
         };
@@ -744,116 +705,47 @@ export class ModalManager {
     });
   }
 
-  // ── 交班完成总结报告、协同外链一键跳转与自动归档 ──────────────
-  static openHandoverSummaryModal(archiveData: {
-    summaryText: string;
-    taskTitle: string;
+  // ── 确认填写完报告后，专门打包归档照片与自动复位 ────────────────
+  /**
+   * 核心要求：“不用交班报告，只需要把值班过程中的照片分类存储到指定文件夹即可，确认填写完报告后打包归档”
+   */
+  static openPhotosArchiveCompletedModal(archiveData: {
     totalPhotos: number;
+    postsCount: number;
     onResetAndRestart: () => void;
   }): void {
-    const settings = DutyStorage.getSettings();
-    const hasExternalUrl = !!settings.handoverExternalUrl;
-
     const contentHtml = `
-      <div style="text-align:center; padding:10px 0 16px;">
-        <div style="width:56px; height:56px; border-radius:50%; background:var(--success-light); color:var(--success); display:flex; align-items:center; justify-content:center; margin:0 auto 12px;">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="20 6 9 17 4 12"></polyline>
+      <div style="text-align:center; padding:12px 0 16px;">
+        <div style="width:60px; height:60px; border-radius:50%; background:var(--success-light); color:var(--success); display:flex; align-items:center; justify-content:center; margin:0 auto 12px;">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            <polyline points="12 11 12 17"></polyline>
+            <polyline points="9 14 12 17 15 14"></polyline>
           </svg>
         </div>
-        <h2 style="font-size:1.25rem; font-weight:700;">值班巡查已全部完成！</h2>
-        <p style="font-size:0.8125rem; color:var(--text-muted); margin-top:4px;">
-          交班报告已自动复制到剪贴板，巡检照片已自动打包为 ZIP 归档包。
+        <h2 style="font-size:1.1875rem; font-weight:700;">巡检照片已分类打包归档！</h2>
+        <p style="font-size:0.8125rem; color:var(--text-muted); margin-top:6px; line-height:1.5;">
+          已将本次值班涉及的 <b>${archiveData.postsCount} 个岗位</b>、共 <b>${archiveData.totalPhotos} 张现场照片</b> 按岗位建立独立文件夹分类归纳，并自动生成 ZIP 压缩包下载保存。
         </p>
       </div>
 
-      <!-- 交班协同外链一键跳转 -->
-      ${
-        hasExternalUrl
-          ? `
-        <div style="margin-bottom:12px;">
-          <button class="icon-btn" id="jump-external-btn" style="width:100%; height:46px; font-weight:700; font-size:0.9375rem; background:linear-gradient(90deg, #2563EB, #38BDF8); color:white; border:none; gap:8px;">
-            🚀 一键跳转预设交班链接汇报
-            <span style="font-size:0.75rem; opacity:0.85;">(自动携带剪贴板报告)</span>
-          </button>
+      <div class="settings-group" style="padding:12px; font-size:0.8125rem; color:var(--text-main);">
+        <div style="font-weight:600; margin-bottom:4px;">📁 照片分类归档路径示意：</div>
+        <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); line-height:1.6;">
+          • [岗位名称]/[条目名称]_[拍摄时间].jpg<br>
+          • 压缩包已保存至手机文件/下载目录
         </div>
-      `
-          : ''
-      }
-
-      <!-- 协同软件快捷跳转 -->
-      <div style="display:flex; gap:8px; margin-bottom:12px;">
-        <button class="icon-btn" id="jump-wechat-btn" style="flex:1; height:38px; font-size:0.8125rem; font-weight:600; background:#07C160; color:white; border:none;">
-          💬 唤起微信
-        </button>
-        <button class="icon-btn" id="jump-tim-btn" style="flex:1; height:38px; font-size:0.8125rem; font-weight:600; background:#12B7F5; color:white; border:none;">
-          💬 唤起 TIM / QQ
-        </button>
-      </div>
-
-      <div class="settings-group">
-        <div class="settings-group-title">📋 值班交班总结报告</div>
-        <textarea id="summary-textarea" readonly style="width:100%; height:140px; font-family:var(--font-mono); font-size:0.75rem; padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); resize:none;">${archiveData.summaryText}</textarea>
-        <button class="icon-btn" id="copy-summary-btn" style="width:100%; height:38px; font-weight:600; font-size:0.8125rem; background:var(--accent); color:white; border:none; gap:6px;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-          </svg>
-          重新复制报告内容
-        </button>
       </div>
 
       <div style="margin-top:12px;">
-        <button class="icon-btn" id="reset-restart-btn" style="width:100%; height:46px; font-weight:700; font-size:0.9375rem; background:var(--text-main); color:var(--bg-main); border:none; gap:6px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-          </svg>
-          归档并刷新，就绪下一次值班
+        <button class="icon-btn" id="finish-reset-btn" style="width:100%; height:46px; font-weight:700; font-size:0.9375rem; background:var(--text-main); color:var(--bg-main); border:none; gap:6px;">
+          🔄 归档并刷新，就绪下一次值班
         </button>
       </div>
     `;
 
-    // 默认自动将报告复制到剪贴板，方便跳转后直接粘贴
-    try {
-      navigator.clipboard.writeText(archiveData.summaryText);
-    } catch (e) {}
-
-    const close = this.openSheet('值班归档与交班汇报', contentHtml, (card) => {
-      // 跳转预设外链
-      const jumpExtBtn = card.querySelector('#jump-external-btn');
-      jumpExtBtn?.addEventListener('click', () => {
-        if (settings.handoverExternalUrl) {
-          window.open(settings.handoverExternalUrl, '_blank');
-        }
-      });
-
-      // 唤起微信
-      const jumpWechatBtn = card.querySelector('#jump-wechat-btn');
-      jumpWechatBtn?.addEventListener('click', () => {
-        window.location.href = 'weixin://';
-      });
-
-      // 唤起 TIM / QQ
-      const jumpTimBtn = card.querySelector('#jump-tim-btn');
-      jumpTimBtn?.addEventListener('click', () => {
-        window.location.href = 'mqqapi://';
-      });
-
-      // 复制报告
-      const copyBtn = card.querySelector('#copy-summary-btn') as HTMLElement;
-      const textarea = card.querySelector('#summary-textarea') as HTMLTextAreaElement;
-      copyBtn?.addEventListener('click', () => {
-        navigator.clipboard.writeText(textarea.value).then(() => {
-          copyBtn.textContent = '✅ 已成功复制！';
-          NativeBridgeService.triggerLightHaptic();
-          setTimeout(() => {
-            copyBtn.textContent = '重新复制报告内容';
-          }, 2000);
-        });
-      });
-
-      // 归档并刷新
-      const resetBtn = card.querySelector('#reset-restart-btn') as HTMLElement;
+    const close = this.openSheet('值班照片分类打包完成', contentHtml, (card) => {
+      const resetBtn = card.querySelector('#finish-reset-btn') as HTMLElement;
       resetBtn?.addEventListener('click', () => {
         close();
         archiveData.onResetAndRestart();
@@ -867,9 +759,9 @@ export class ModalManager {
       <div class="settings-group">
         <div class="settings-group-title">✨ 创建全新空白值班任务</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px;">
-          完全纯净自定义，不带任何预设。创建后可在岗位设置中自由增删改岗位与检查条目。
+          纯净空白初始态。创建后在主界面点击「添加巡查条目」即可自由添加。
         </div>
-        <input type="text" id="custom-task-title" placeholder="输入值班任务名称 (如: 图书馆夜班巡更)" 
+        <input type="text" id="custom-task-title" placeholder="输入值班任务名称 (如: 图书馆常规值班)" 
           style="width:100%; padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.875rem;" />
         
         <div style="display:flex; gap:8px; margin-top:8px;">

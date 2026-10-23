@@ -1,8 +1,8 @@
 import './styles/app.css';
-import { FluidMotion, FluidMotionComponents } from './engine/fluidMotion';
 import { DutyStorage } from './storage/db';
 import { NativeBridgeService } from './services/nativeBridge';
 import { ModalManager } from './components/modals';
+import { ItemModal } from './components/itemModal';
 import { bindCardSwipe } from './gestures/swipeTracker';
 import type { DutyTask, DutyItem, InspectionPhoto } from './models/types';
 
@@ -29,6 +29,7 @@ class OxherdApp {
       if (current.theme === 'system') {
         const newTheme = e.matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', newTheme);
+        NativeBridgeService.syncStatusBarTheme('system');
       }
     });
   }
@@ -39,9 +40,10 @@ class OxherdApp {
       resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
     document.documentElement.setAttribute('data-theme', resolved);
+    NativeBridgeService.syncStatusBarTheme(theme);
   }
 
-  // ── 任务初始化（纯净空白初始态，无任何预设） ────────────────────
+  // ── 任务初始化（纯净空白初始态，零硬编码预设） ──────────────────
   private initTask(): void {
     let task = DutyStorage.getCurrentTask();
     if (!task) {
@@ -52,27 +54,7 @@ class OxherdApp {
 
   // ── 全局事件绑定 ────────────────────────────────────────────
   private bindGlobalEvents(): void {
-    // 1. 重点需求：岗位在设置中切换与条目排列管理
-    const postSwitchBar = document.getElementById('post-switch-bar');
-    postSwitchBar?.addEventListener('click', () => {
-      if (!this.currentTask) return;
-      NativeBridgeService.triggerLightHaptic();
-      ModalManager.openPostSettingsModal(
-        this.currentTask,
-        (selectedPostId) => {
-          if (this.currentTask) {
-            this.currentTask.currentPostId = selectedPostId;
-            DutyStorage.saveTask(this.currentTask);
-            this.render();
-          }
-        },
-        () => {
-          this.render();
-        }
-      );
-    });
-
-    // 2. 新建全新空白值班任务
+    // 1. 新建全新空白值班任务
     const newTaskBtn = document.getElementById('new-task-btn');
     newTaskBtn?.addEventListener('click', () => {
       NativeBridgeService.triggerLightHaptic();
@@ -82,7 +64,7 @@ class OxherdApp {
       });
     });
 
-    // 3. 系统全参数设置（包含协同外链、JSON导入导出、通知唤醒、开机保活）
+    // 2. 系统全参数设置（包含协同外链、JSON导入导出、通知唤醒、开机保活）
     const settingsBtn = document.getElementById('system-settings-btn');
     settingsBtn?.addEventListener('click', async () => {
       NativeBridgeService.triggerLightHaptic();
@@ -92,35 +74,51 @@ class OxherdApp {
       });
     });
 
-    // 4. 临时添加巡检项（支持快速录入）
-    const addTempItemBtn = document.getElementById('add-temp-item-btn');
-    addTempItemBtn?.addEventListener('click', () => {
+    // 3. 底部主添加条目按钮（彻底抛弃 window.prompt，调用专业 ItemModal）
+    const addItemBtn = document.getElementById('open-add-item-modal-btn');
+    addItemBtn?.addEventListener('click', () => {
       if (!this.currentTask) return;
-      const title = prompt('请输入新巡查条目名称：');
-      if (title && title.trim()) {
-        const newItem: DutyItem = {
-          id: `item_${this.currentTask.currentPostId}_${Date.now()}`,
-          postId: this.currentTask.currentPostId,
-          title: title.trim(),
-          itemType: 'STANDARD',
-          requirePhoto: false,
-          photos: [],
-          isCompleted: false,
-          completedAt: null,
-          subItems: [],
-          isExpanded: false
-        };
-        this.currentTask.items.push(newItem);
-        DutyStorage.saveTask(this.currentTask);
-        NativeBridgeService.triggerLightHaptic();
-        this.render();
-      }
+      const currentPost = this.currentTask.posts.find(p => p.id === this.currentTask?.currentPostId);
+      NativeBridgeService.triggerLightHaptic();
+
+      ItemModal.open({
+        postName: currentPost?.name || '当前岗位',
+        onSave: (result) => {
+          if (!this.currentTask) return;
+          const newItemId = `item_${this.currentTask.currentPostId}_${Date.now()}`;
+          const newItem: DutyItem = {
+            id: newItemId,
+            postId: this.currentTask.currentPostId,
+            title: result.title,
+            itemType: result.itemType,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            requirePhoto: result.requirePhoto,
+            photos: [],
+            isCompleted: false,
+            completedAt: null,
+            subItems: result.subItems.map(s => ({
+              id: s.id,
+              itemId: newItemId,
+              title: s.title,
+              isCompleted: false,
+              completedAt: null
+            })),
+            isExpanded: true
+          };
+
+          this.currentTask.items.push(newItem);
+          DutyStorage.saveTask(this.currentTask);
+          NativeBridgeService.triggerLightHaptic();
+          this.render();
+        }
+      });
     });
 
-    // 5. 危险操作长按蓄力交班确认 (1.5秒)
+    // 4. 长按 1 秒蓄力交班确认（用户特别指定：1 秒）
     this.bindHandoverHold();
 
-    // 6. 拍照选择器文件捕获
+    // 5. 拍照选择器文件捕获
     const fileInput = document.getElementById('camera-file-input') as HTMLInputElement;
     fileInput?.addEventListener('change', () => {
       const file = fileInput.files?.[0];
@@ -157,7 +155,7 @@ class OxherdApp {
       reader.readAsDataURL(file);
     });
 
-    // 7. 撤销按钮
+    // 6. 撤销按钮
     const undoBtn = document.getElementById('undo-action-btn');
     undoBtn?.addEventListener('click', () => {
       if (this.lastSwipedItemInfo && this.currentTask) {
@@ -172,7 +170,7 @@ class OxherdApp {
     });
   }
 
-  // ── 绑定 1.5 秒长按蓄力交班 ─────────────────────────────────
+  // ── 绑定 1 秒长按蓄力交班（用户要求：设置为 1 秒） ─────────────
   private bindHandoverHold(): void {
     const handoverBtn = document.getElementById('handover-btn');
     const holdFill = document.getElementById('handover-hold-fill');
@@ -180,14 +178,14 @@ class OxherdApp {
 
     let startTime = 0;
     let animFrame: any = null;
-    const HOLD_DURATION = 1500;
+    const HOLD_DURATION = 1000; // 设定为精确 1 秒 (1000ms)
 
     const cancelHold = () => {
       if (animFrame) {
         cancelAnimationFrame(animFrame);
         animFrame = null;
       }
-      holdFill.style.transition = 'width 160ms cubic-bezier(.22, 1, .36, 1)';
+      holdFill.style.transition = 'width 140ms cubic-bezier(.22, 1, .36, 1)';
       holdFill.style.width = '0%';
     };
 
@@ -219,16 +217,25 @@ class OxherdApp {
     handoverBtn.addEventListener('pointercancel', cancelHold);
   }
 
-  // ── 执行交班并自动归档与复位 ──────────────────────────────────
+  // ── 执行交班：专门打包现场照片归档并复位（无需文本报告） ───────────
   private async executeHandover(): Promise<void> {
     if (!this.currentTask) return;
 
-    const archive = await DutyStorage.completeAndArchiveTask(this.currentTask);
+    // 协同外链：若预设了填报外链，提示跳转
+    const settings = DutyStorage.getSettings();
+    if (settings.handoverExternalUrl) {
+      const openExternal = confirm(`是否跳转至预设的值班链接填写报告？\n\n${settings.handoverExternalUrl}`);
+      if (openExternal) {
+        window.open(settings.handoverExternalUrl, '_blank');
+      }
+    }
 
-    ModalManager.openHandoverSummaryModal({
-      summaryText: archive.summaryText,
-      taskTitle: archive.taskTitle,
+    // 核心要求：“不用交班报告，只需要把值班过程中的照片分类存储到指定文件夹即可，确认填写完报告后打包归档”
+    const archive = await DutyStorage.completeAndArchivePhotos(this.currentTask);
+
+    ModalManager.openPhotosArchiveCompletedModal({
       totalPhotos: archive.totalPhotos,
+      postsCount: this.currentTask.posts.length,
       onResetAndRestart: () => {
         // 核心要求：“归档并刷新，支持下一次使用”
         this.initTask();
@@ -249,7 +256,7 @@ class OxherdApp {
     if (this.undoTimer) clearTimeout(this.undoTimer);
     this.undoTimer = setTimeout(() => {
       this.hideUndoToast();
-    }, 3800);
+    }, 3200);
   }
 
   private hideUndoToast(): void {
@@ -257,7 +264,7 @@ class OxherdApp {
     toast?.classList.remove('show');
   }
 
-  // ── 界面全量渲染 ────────────────────────────────────────────
+  // ── 界面全量流体渲染 ────────────────────────────────────────
   private render(): void {
     if (!this.currentTask) return;
 
@@ -270,16 +277,8 @@ class OxherdApp {
     const shiftBadge = document.getElementById('shift-badge');
     if (shiftBadge) shiftBadge.textContent = task.shiftName;
 
-    const currentPostName = document.getElementById('current-post-name');
-    if (currentPostName) currentPostName.textContent = currentPost ? currentPost.name : '请在设置中创建岗位';
-
-    const currentPostItems = task.items.filter(i => i.postId === currentPost?.id);
-    const postCompletedCount = currentPostItems.filter(i => i.isCompleted).length;
-
-    const currentPostStats = document.getElementById('current-post-stats');
-    if (currentPostStats) {
-      currentPostStats.textContent = `${postCompletedCount}/${currentPostItems.length} 项已核验`;
-    }
+    // 渲染顶栏水平滚动岗位胶囊
+    this.renderPostsNavScroll(currentPost);
 
     const taskTitleDisplay = document.getElementById('task-title-display');
     if (taskTitleDisplay) taskTitleDisplay.textContent = task.title;
@@ -297,13 +296,15 @@ class OxherdApp {
     const container = document.getElementById('items-list');
     if (!container) return;
 
+    const currentPostItems = task.items.filter(i => i.postId === currentPost?.id);
+
     if (currentPostItems.length === 0) {
       container.innerHTML = `
-        <div style="text-align:center; padding:50px 20px; color:var(--text-muted);">
-          <div style="font-size:2.5rem; margin-bottom:8px;">🏮</div>
-          <div style="font-weight:600; font-size:1rem; color:var(--text-main);">当前岗位暂无巡检条目</div>
-          <div style="font-size:0.8125rem; margin-top:4px;">
-            点击下方「+」按钮直接添加条目，或在上方「岗位设置」中自由配置
+        <div style="text-align:center; padding:60px 20px; color:var(--text-muted);">
+          <div style="font-size:2.8rem; margin-bottom:12px;">🏮</div>
+          <div style="font-weight:700; font-size:1.0625rem; color:var(--text-main);">当前岗位暂无巡检条目</div>
+          <div style="font-size:0.8125rem; margin-top:6px; color:var(--text-muted);">
+            点击下方「添加巡查条目」开始录入，支持时段巡查、拍照留痕与多行细项
           </div>
         </div>
       `;
@@ -314,12 +315,14 @@ class OxherdApp {
       .map(item => this.renderItemCardHtml(item))
       .join('');
 
+    // 绑定条目卡片交互（1:1 极致跟手滑动、左右双向划除、编辑弹窗与拍照）
     currentPostItems.forEach(item => {
       const cardEl = container.querySelector(`[data-item-card-id="${item.id}"]`) as HTMLElement;
       if (!cardEl) return;
 
+      // 1:1 跟手左右双向划去
       bindCardSwipe(cardEl, {
-        threshold: 75,
+        threshold: 65,
         onSwipeComplete: () => {
           this.lastSwipedItemInfo = {
             item,
@@ -338,6 +341,7 @@ class OxherdApp {
         }
       });
 
+      // 勾选主项复选框
       const checkbox = cardEl.querySelector('.item-checkbox') as HTMLElement;
       checkbox?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -352,6 +356,50 @@ class OxherdApp {
         this.render();
       });
 
+      // 编辑条目（点击编辑按钮或标题进入 ItemModal）
+      const editBtn = cardEl.querySelector('.item-edit-btn') as HTMLElement;
+      editBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        NativeBridgeService.triggerLightHaptic();
+        ItemModal.open({
+          item,
+          postName: currentPost?.name || '当前岗位',
+          onSave: (result) => {
+            item.title = result.title;
+            item.itemType = result.itemType;
+            item.startTime = result.startTime;
+            item.endTime = result.endTime;
+            item.requirePhoto = result.requirePhoto;
+
+            const existingSubMap = new Map(item.subItems.map(s => [s.id, s]));
+            item.subItems = result.subItems.map(s => {
+              const prev = existingSubMap.get(s.id);
+              return {
+                id: s.id,
+                itemId: item.id,
+                title: s.title,
+                isCompleted: prev ? prev.isCompleted : false,
+                completedAt: prev ? prev.completedAt : null
+              };
+            });
+
+            if (item.subItems.length > 0 && item.subItems.every(s => s.isCompleted)) {
+              item.isCompleted = true;
+            }
+
+            DutyStorage.saveTask(task);
+            this.render();
+          },
+          onDelete: () => {
+            task.items = task.items.filter(i => i.id !== item.id);
+            DutyStorage.saveTask(task);
+            NativeBridgeService.triggerLightHaptic();
+            this.render();
+          }
+        });
+      });
+
+      // 展开/收起细分子项
       const toggleSubBtn = cardEl.querySelector('.subitems-toggle-btn') as HTMLElement;
       toggleSubBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -360,6 +408,7 @@ class OxherdApp {
         this.render();
       });
 
+      // 点击或划去细分子条目（细项全部完成后主条目自动完成）
       cardEl.querySelectorAll('.subitem-row').forEach(subRow => {
         subRow.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -368,11 +417,17 @@ class OxherdApp {
           if (sub) {
             sub.isCompleted = !sub.isCompleted;
             sub.completedAt = sub.isCompleted ? new Date().toISOString() : null;
+
+            // 划完所有细项后，主条目自动设置为完成
             const allSubDone = item.subItems.every(s => s.isCompleted);
-            if (allSubDone && !item.isCompleted) {
+            if (allSubDone) {
               item.isCompleted = true;
               item.completedAt = new Date().toISOString();
+            } else if (!sub.isCompleted && item.isCompleted) {
+              item.isCompleted = false;
+              item.completedAt = null;
             }
+
             DutyStorage.saveTask(task);
             NativeBridgeService.triggerLightHaptic();
             this.render();
@@ -380,6 +435,7 @@ class OxherdApp {
         });
       });
 
+      // 拍照按钮
       const addPhotoBtn = cardEl.querySelector('.add-photo-btn') as HTMLElement;
       addPhotoBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -388,17 +444,19 @@ class OxherdApp {
         fileInput?.click();
       });
 
+      // 复制凭证信息
       cardEl.querySelectorAll('.copy-photo-data-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const photoSummary = item.photos.map(p => `【${item.title}】凭证：${p.fileName} (拍摄于 ${p.timestamp})`).join('\n');
           navigator.clipboard.writeText(photoSummary).then(() => {
-            alert('已复制照片凭证信息，可直接粘贴至值班表单！');
+            alert('已复制照片凭证信息！');
             NativeBridgeService.triggerLightHaptic();
           });
         });
       });
 
+      // 删除照片
       cardEl.querySelectorAll('.photo-del-badge').forEach(delBtn => {
         delBtn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -412,6 +470,70 @@ class OxherdApp {
     });
   }
 
+  // ── 渲染顶栏水平滚动岗位胶囊 ────────────────────────────────
+  private renderPostsNavScroll(currentPost?: any): void {
+    if (!this.currentTask) return;
+    const task = this.currentTask;
+
+    const navScroll = document.getElementById('posts-nav-scroll');
+    if (!navScroll) return;
+
+    navScroll.innerHTML = `
+      ${task.posts
+        .map(p => {
+          const isActive = p.id === currentPost?.id;
+          const postItems = task.items.filter(i => i.postId === p.id);
+          const doneCount = postItems.filter(i => i.isCompleted).length;
+          return `
+            <div class="post-nav-pill ${isActive ? 'active' : ''}" data-nav-post-id="${p.id}">
+              <span>${p.name}</span>
+              <span style="font-size:0.6875rem; opacity:0.85;">(${doneCount}/${postItems.length})</span>
+            </div>
+          `;
+        })
+        .join('')}
+      <div class="post-nav-manage-btn" id="open-post-manage-pill-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>岗位管理</span>
+      </div>
+    `;
+
+    navScroll.querySelectorAll('.post-nav-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        const pid = pill.getAttribute('data-nav-post-id');
+        if (pid && this.currentTask) {
+          this.currentTask.currentPostId = pid;
+          DutyStorage.saveTask(this.currentTask);
+          NativeBridgeService.triggerLightHaptic();
+          this.render();
+        }
+      });
+    });
+
+    const manageBtn = navScroll.querySelector('#open-post-manage-pill-btn');
+    manageBtn?.addEventListener('click', () => {
+      if (!this.currentTask) return;
+      NativeBridgeService.triggerLightHaptic();
+      ModalManager.openPostSettingsModal(
+        this.currentTask,
+        (selectedPostId) => {
+          if (this.currentTask) {
+            this.currentTask.currentPostId = selectedPostId;
+            DutyStorage.saveTask(this.currentTask);
+            this.render();
+          }
+        },
+        () => {
+          this.render();
+        }
+      );
+    });
+  }
+
+  // ── 渲染巡检条目卡片 HTML ────────────────────────────────────
   private renderItemCardHtml(item: DutyItem): string {
     const isDone = item.isCompleted;
     const timeFormatted = item.completedAt ? new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
@@ -457,13 +579,20 @@ class OxherdApp {
         : '';
 
     return `
-      <div class="duty-item-card" data-item-card-id="${item.id}">
+      <div class="duty-item-card ${isDone ? 'completed-card' : ''}" data-item-card-id="${item.id}">
+        <!-- 左右双向滑动显露层 (带左侧与右侧提示) -->
         <div class="swipe-backdrop">
-          <div class="swipe-icon-hint">
+          <div class="swipe-hint-left">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-            <span>向右滑动划去核验</span>
+            <span>已核验完成</span>
+          </div>
+          <div class="swipe-hint-right">
+            <span>已核验完成</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
           </div>
         </div>
 
@@ -474,8 +603,16 @@ class OxherdApp {
             </div>
             
             <div class="item-info-col">
-              <div class="item-title-text ${isDone ? 'striked' : ''}">
-                ${item.title}
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
+                <div class="item-title-text ${isDone ? 'striked' : ''}">
+                  ${item.title}
+                </div>
+                <button type="button" class="icon-btn item-edit-btn" style="width:28px; height:28px; border:none; background:transparent; color:var(--text-muted); flex-shrink:0;" title="编辑条目">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                </button>
               </div>
 
               <!-- 状态元数据 -->
@@ -501,7 +638,7 @@ class OxherdApp {
                     <span>${timeFormatted} 已核验</span>
                   </div>
                 `
-                    : '<span style="color:var(--text-muted);">待巡检 (可右滑划去)</span>'
+                    : '<span style="color:var(--text-muted); font-size:0.75rem;">待巡检（左右轻划即划去）</span>'
                 }
 
                 ${

@@ -22,6 +22,9 @@ export interface OxherdNativePlugin {
   }): Promise<{ success: boolean; notificationId: number }>;
   cancelDutyAlarm(options: { taskId: string }): Promise<void>;
   setBootRestoreEnabled(options: { enabled: boolean }): Promise<void>;
+  saveConfigFile(options: { fileName: string; content: string }): Promise<{ success: boolean; path: string }>;
+  shareConfigFile(options: { fileName: string; content: string }): Promise<void>;
+  setStatusBarTheme(options: { isLight: boolean }): Promise<void>;
 }
 
 const OxherdNative = registerPlugin<OxherdNativePlugin>('OxherdNative');
@@ -73,7 +76,7 @@ export class NativeBridgeService {
         return res.vendor;
       } catch (e) {}
     }
-    return '通用 Android / WebView';
+    return '通用 Android / 全面屏';
   }
 
   static async setBootRestoreEnabled(enabled: boolean): Promise<void> {
@@ -110,10 +113,89 @@ export class NativeBridgeService {
   }
 
   /**
+   * 保存配置文件至手机文件（绝不用剪贴板）
+   */
+  static async saveConfigFile(fileName: string, content: string): Promise<boolean> {
+    if (this.isNative()) {
+      try {
+        const res = await OxherdNative.saveConfigFile({ fileName, content });
+        return res.success;
+      } catch (e: any) {
+        console.warn('原生保存文件失败', e);
+      }
+    }
+
+    // Web / 浏览器环境回退（使用标准文件下载，坚决不降级为剪贴板）
+    try {
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+      alert(`配置文件已成功触发下载并保存：\n${fileName}`);
+      return true;
+    } catch (e) {
+      alert('保存配置文件失败，请检查浏览器权限。');
+      return false;
+    }
+  }
+
+  /**
+   * 一键分享配置文件至微信 / TIM（原生 Intent 调起系统分享面板，绝不用剪贴板）
+   */
+  static async shareConfigFile(fileName: string, content: string): Promise<boolean> {
+    if (this.isNative()) {
+      try {
+        await OxherdNative.shareConfigFile({ fileName, content });
+        return true;
+      } catch (e) {
+        console.warn('原生调起系统分享面板失败', e);
+      }
+    }
+
+    // Web / 浏览器环境：尝试 Web Share API（带文件），不支持则直接触发文件保存，坚决不使用剪贴板
+    if (navigator.share) {
+      try {
+        const file = new File([content], fileName, { type: 'application/json' });
+        await navigator.share({
+          title: 'oxherd 值班巡检配置文件',
+          text: '分享 oxherd 值班巡检配置文件，可在应用内直接导入。',
+          files: [file]
+        });
+        return true;
+      } catch (e) {
+        // 用户主动取消分享或环境不支持文件分享
+      }
+    }
+
+    // 无法唤起系统分享面板时，直接下载保存文件
+    return await this.saveConfigFile(fileName, content);
+  }
+
+  /**
+   * 同步状态栏和导航栏文字颜色与当前深浅色主题
+   */
+  static async syncStatusBarTheme(theme: 'light' | 'dark' | 'system'): Promise<void> {
+    let isLight = theme === 'light';
+    if (theme === 'system') {
+      isLight = !window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    if (this.isNative()) {
+      try {
+        await OxherdNative.setStatusBarTheme({ isLight });
+      } catch (e) {}
+    }
+  }
+
+  /**
    * 一键测试通知提醒（发声 + 强震动）
    */
   static async testNotification(title: string, message: string, sound = true, vibrate = true): Promise<void> {
-    // 1. 原生调用
     if (this.isNative()) {
       try {
         await OxherdNative.testNotification({ title, message, sound, vibrate });
@@ -123,7 +205,6 @@ export class NativeBridgeService {
       }
     }
 
-    // 2. 网页/测试环境下的高保真震动与声音合成
     if (vibrate) {
       this.playPatrolHaptics();
     }
@@ -131,7 +212,6 @@ export class NativeBridgeService {
       this.playAlarmSiren();
     }
 
-    // 3. 浏览器原生 Notification 弹窗
     if ('Notification' in window) {
       if (Notification.permission === 'granted') {
         new Notification(title, { body: message, icon: '/favicon.ico' });
@@ -145,9 +225,6 @@ export class NativeBridgeService {
     }
   }
 
-  /**
-   * 触发打卡或微交互轻微触感
-   */
   static async triggerLightHaptic(): Promise<void> {
     try {
       if (this.isNative()) {
@@ -158,9 +235,6 @@ export class NativeBridgeService {
     } catch (e) {}
   }
 
-  /**
-   * 触发滑动完成强触感
-   */
   static async triggerCompleteHaptic(): Promise<void> {
     try {
       if (this.isNative()) {
@@ -171,32 +245,23 @@ export class NativeBridgeService {
     } catch (e) {}
   }
 
-  /**
-   * 巡更强震动 (双重长震动)
-   */
   static playPatrolHaptics(): void {
     if (navigator.vibrate) {
-      // 0ms, 500ms震动, 200ms停, 500ms震动, 200ms停, 800ms震动
       navigator.vibrate([0, 500, 200, 500, 200, 800]);
     }
   }
 
-  /**
-   * Web Audio API 警报合成音（双频巡逻交替声）
-   */
   static playAlarmSiren(): void {
     try {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextClass) return;
       const ctx = new AudioContextClass();
-
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
       osc.type = 'sawtooth';
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
 
-      // 双频交替 880Hz <-> 1760Hz
       const now = ctx.currentTime;
       for (let i = 0; i < 4; i++) {
         osc.frequency.setValueAtTime(880, now + i * 0.3);
@@ -204,10 +269,8 @@ export class NativeBridgeService {
       }
 
       gain.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
-
       osc.connect(gain);
       gain.connect(ctx.destination);
-
       osc.start(now);
       osc.stop(now + 1.4);
     } catch (e) {

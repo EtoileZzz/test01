@@ -6,12 +6,19 @@ export interface SwipeOptions {
   onSwipeCancel?: () => void;
 }
 
+/**
+ * 极速 1:1 跟手左右双向滑动划除控制器：
+ * 1. 极致跟手：去除任何阻尼幂次滞后，手指移动多少像素，卡片就瞬时移动多少像素 (1:1 响应)
+ * 2. 左右双向均可划去：左划或右划达到阈值均可完成核验划除
+ * 3. 动态展示左右两侧对应的完成指示器
+ * 4. 完美兼顾垂直滚动意图与水平划除意图
+ */
 export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () => void {
   const contentEl = cardEl.querySelector('.item-content-wrapper') as HTMLElement;
   const backdropEl = cardEl.querySelector('.swipe-backdrop') as HTMLElement;
   if (!contentEl) return () => {};
 
-  const threshold = options.threshold || 75;
+  const threshold = options.threshold || 68;
   let startX = 0;
   let startY = 0;
   let currentDx = 0;
@@ -19,10 +26,22 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
   let isHorizontalIntent = false;
   let hasThresholdVibrated = false;
 
+  const leftHint = backdropEl?.querySelector('.swipe-hint-left') as HTMLElement;
+  const rightHint = backdropEl?.querySelector('.swipe-hint-right') as HTMLElement;
+
   function onPointerDown(e: PointerEvent) {
-    // 忽略点击按钮、复选框或图片面板的直接交互
+    // 忽略直接点击控件（复选框、折叠按钮、图片缩略图、删除按钮等）
     const target = e.target as HTMLElement;
-    if (target.closest('.item-checkbox') || target.closest('.subitems-toggle-btn') || target.closest('.photo-thumb-box') || target.closest('.add-photo-btn')) {
+    if (
+      target.closest('.item-checkbox') ||
+      target.closest('.subitems-toggle-btn') ||
+      target.closest('.photo-thumb-box') ||
+      target.closest('.add-photo-btn') ||
+      target.closest('.item-edit-btn') ||
+      target.closest('.subitem-checkbox') ||
+      target.closest('button') ||
+      target.closest('input')
+    ) {
       return;
     }
 
@@ -33,6 +52,7 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
     isHorizontalIntent = false;
     hasThresholdVibrated = false;
 
+    // 瞬时移除 transition，确保 1:1 零延迟直接跟随手指
     contentEl.style.transition = 'none';
   }
 
@@ -42,13 +62,15 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
 
-    // 意图锁定：区分上下滚动还是左右滑动
+    // 意图锁定：优先区分是上下滚动页面还是左右划去条目
     if (!isHorizontalIntent) {
-      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
         isHorizontalIntent = true;
-        try { cardEl.setPointerCapture(e.pointerId); } catch (err) {}
-      } else if (Math.abs(dy) > 10) {
-        // 用户想纵向滚动页面，释放手势
+        try {
+          cardEl.setPointerCapture(e.pointerId);
+        } catch (err) {}
+      } else if (Math.abs(dy) > 7) {
+        // 用户意图为纵向滚动，释放滑动追踪
         isTracking = false;
         return;
       }
@@ -56,36 +78,61 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
 
     if (!isHorizontalIntent) return;
 
-    // 仅支持向右滑动划去核验（带物理弹性阻尼系数 0.65）
-    if (dx > 0) {
-      currentDx = Math.pow(dx, 0.88);
-      contentEl.style.transform = `translate3d(${currentDx}px, 0, 0)`;
+    // 阻止浏览器默认水平手势
+    e.preventDefault();
 
-      if (backdropEl) {
-        const opacity = Math.min(1, currentDx / threshold);
-        backdropEl.style.opacity = `${opacity}`;
-      }
+    // 1:1 极致跟手无延迟直接渲染
+    currentDx = dx;
+    contentEl.style.transform = `translate3d(${currentDx}px, 0, 0)`;
 
-      // 超过阈值触发单次触感确认
-      if (currentDx >= threshold && !hasThresholdVibrated) {
-        hasThresholdVibrated = true;
-        NativeBridgeService.triggerLightHaptic();
-      } else if (currentDx < threshold && hasThresholdVibrated) {
-        hasThresholdVibrated = false;
+    const absDx = Math.abs(currentDx);
+
+    if (backdropEl) {
+      const opacity = Math.min(1, absDx / (threshold * 0.85));
+      backdropEl.style.opacity = `${opacity}`;
+
+      // 根据滑动方向分别点亮左侧或右侧的核验提示
+      if (leftHint && rightHint) {
+        if (currentDx > 0) {
+          leftHint.style.opacity = '1';
+          rightHint.style.opacity = '0';
+          leftHint.style.transform = `scale(${Math.min(1.15, 0.85 + (absDx / threshold) * 0.3)})`;
+        } else {
+          leftHint.style.opacity = '0';
+          rightHint.style.opacity = '1';
+          rightHint.style.transform = `scale(${Math.min(1.15, 0.85 + (absDx / threshold) * 0.3)})`;
+        }
       }
+    }
+
+    // 越过划去阈值时触发单次轻微触感提示
+    if (absDx >= threshold && !hasThresholdVibrated) {
+      hasThresholdVibrated = true;
+      NativeBridgeService.triggerLightHaptic();
+    } else if (absDx < threshold && hasThresholdVibrated) {
+      hasThresholdVibrated = false;
     }
   }
 
-  function onPointerUp() {
+  function finishSwipe(e?: PointerEvent) {
     if (!isTracking) return;
     isTracking = false;
 
-    contentEl.style.transition = 'transform 300ms cubic-bezier(.16, 1, .30, 1)';
+    if (e && cardEl.hasPointerCapture(e.pointerId)) {
+      try {
+        cardEl.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    }
 
-    if (currentDx >= threshold) {
-      // 成功划去
+    const absDx = Math.abs(currentDx);
+
+    if (absDx >= threshold) {
+      // 达到划除阈值：左右双向飞出并完成核验
       NativeBridgeService.triggerCompleteHaptic();
-      contentEl.style.transform = 'translate3d(120%, 0, 0)';
+      contentEl.style.transition = 'transform 200ms cubic-bezier(.16, 1, .3, 1)';
+      const flyOutX = currentDx > 0 ? '120%' : '-120%';
+      contentEl.style.transform = `translate3d(${flyOutX}, 0, 0)`;
+
       setTimeout(() => {
         if (options.onSwipeComplete) {
           options.onSwipeComplete();
@@ -93,27 +140,29 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
         contentEl.style.transition = 'none';
         contentEl.style.transform = 'translate3d(0, 0, 0)';
         if (backdropEl) backdropEl.style.opacity = '0';
-      }, 260);
+      }, 200);
     } else {
-      // 弹性回弹复位
+      // 未达到阈值：丝滑弹簧复位
+      contentEl.style.transition = 'transform 240ms cubic-bezier(.18, .9, .3, 1)';
       contentEl.style.transform = 'translate3d(0, 0, 0)';
       if (backdropEl) {
-        backdropEl.style.transition = 'opacity 200ms ease';
         backdropEl.style.opacity = '0';
       }
-      if (options.onSwipeCancel) options.onSwipeCancel();
+      if (options.onSwipeCancel) {
+        options.onSwipeCancel();
+      }
     }
   }
 
   cardEl.addEventListener('pointerdown', onPointerDown);
   cardEl.addEventListener('pointermove', onPointerMove);
-  cardEl.addEventListener('pointerup', onPointerUp);
-  cardEl.addEventListener('pointercancel', onPointerUp);
+  cardEl.addEventListener('pointerup', finishSwipe);
+  cardEl.addEventListener('pointercancel', finishSwipe);
 
   return () => {
     cardEl.removeEventListener('pointerdown', onPointerDown);
     cardEl.removeEventListener('pointermove', onPointerMove);
-    cardEl.removeEventListener('pointerup', onPointerUp);
-    cardEl.removeEventListener('pointercancel', onPointerUp);
+    cardEl.removeEventListener('pointerup', finishSwipe);
+    cardEl.removeEventListener('pointercancel', finishSwipe);
   };
 }

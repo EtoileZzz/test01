@@ -2,15 +2,29 @@ package com.oxherd.app;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.MediaScannerConnection;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.view.Window;
+import android.widget.Toast;
+import androidx.core.content.FileProvider;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -181,6 +195,119 @@ public class OxherdPlugin extends Plugin {
         boolean enabled = call.getBoolean("enabled", true);
         SharedPreferences sp = getContext().getSharedPreferences(DutyBootReceiver.PREF_NAME, Context.MODE_PRIVATE);
         sp.edit().putBoolean(DutyBootReceiver.KEY_BOOT_RESTORE, enabled).apply();
+        call.resolve();
+    }
+
+    /**
+     * 真正保存配置文件至手机公共下载目录（绝不用剪贴板）
+     */
+    @PluginMethod
+    public void saveConfigFile(PluginCall call) {
+        String fileName = call.getString("fileName", "oxherd_duty_config.json");
+        String content = call.getString("content", "{}");
+        Context context = getContext();
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/oxherd");
+
+                Uri uri = context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    try (OutputStream os = context.getContentResolver().openOutputStream(uri)) {
+                        if (os != null) {
+                            os.write(content.getBytes(StandardCharsets.UTF_8));
+                            os.flush();
+                        }
+                    }
+                }
+            } else {
+                File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                File oxherdDir = new File(downloadDir, "oxherd");
+                if (!oxherdDir.exists()) {
+                    oxherdDir.mkdirs();
+                }
+                File file = new File(oxherdDir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(content.getBytes(StandardCharsets.UTF_8));
+                    fos.flush();
+                }
+                MediaScannerConnection.scanFile(context, new String[]{file.getAbsolutePath()}, null, null);
+            }
+
+            if (getActivity() != null) {
+                getActivity().runOnUiThread(() -> {
+                    Toast.makeText(context, "✅ 配置文件已保存至「手机文件/下载/oxherd」目录", Toast.LENGTH_LONG).show();
+                });
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("path", "下载/oxherd/" + fileName);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("保存配置文件失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 原生文件分享到微信 / TIM / QQ 等应用（绝不用剪贴板）
+     */
+    @PluginMethod
+    public void shareConfigFile(PluginCall call) {
+        String fileName = call.getString("fileName", "oxherd_duty_config.json");
+        String content = call.getString("content", "{}");
+        Context context = getContext();
+
+        try {
+            File cacheDir = new File(context.getCacheDir(), "shared_configs");
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs();
+            }
+            File file = new File(cacheDir, fileName);
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                fos.write(content.getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+            }
+
+            Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", file);
+
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("application/json");
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.putExtra(Intent.EXTRA_SUBJECT, "oxherd 值班巡检配置文件");
+            intent.putExtra(Intent.EXTRA_TEXT, "分享 oxherd 值班巡检配置文件，可在应用内直接导入。");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            Intent chooser = Intent.createChooser(intent, "分享值班配置文件到微信/TIM/其它应用");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(chooser);
+
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("调起系统分享失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 同步状态栏和导航栏文字图标的主题色（亮色/深色切换时高对比度显示）
+     */
+    @PluginMethod
+    public void setStatusBarTheme(PluginCall call) {
+        boolean isLight = call.getBoolean("isLight", false);
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                Window window = getActivity().getWindow();
+                WindowInsetsControllerCompat controller =
+                        WindowCompat.getInsetsController(window, window.getDecorView());
+                if (controller != null) {
+                    controller.setAppearanceLightStatusBars(isLight);
+                    controller.setAppearanceLightNavigationBars(isLight);
+                }
+            });
+        }
         call.resolve();
     }
 }
