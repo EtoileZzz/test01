@@ -1,5 +1,6 @@
 import { ModalManager } from './modals';
 import { NativeBridgeService } from '../services/nativeBridge';
+import { DutyStorage } from '../storage/db';
 import type { DutyItem, DutySubItem, ItemType } from '../models/types';
 
 export interface ItemModalResult {
@@ -24,6 +25,9 @@ export class ItemModal {
   }): void {
     const isEdit = !!options.item;
     const initialItem = options.item;
+
+    const userSettings = DutyStorage.getSettings();
+    let spaceAutoSwitch = userSettings.subItemSpaceAutoSwitch !== false; // 细项根据空格自动切换
 
     let currentType: ItemType = initialItem?.itemType || 'STANDARD';
     let requirePhoto = initialItem?.requirePhoto || false;
@@ -138,21 +142,26 @@ export class ItemModal {
           </div>
         </div>
 
-        <!-- 细分子条目管理（划除所有细项后主条目自动完成，支持多行批量自动识别） -->
+        <!-- 细分子条目管理（划除所有细项后主条目自动完成，支持空格自动切换与多行批量识别） -->
         <div>
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
             <label style="font-size:0.8125rem; font-weight:600; color:var(--text-main);">
               细分子条目（可选）
             </label>
-            <button type="button" class="icon-btn" id="toggle-batch-sub-btn" style="width:auto; height:24px; padding:0 8px; font-size:0.6875rem; color:var(--accent); border-color:var(--accent-light); background:var(--accent-light);">
-              📋 批量多行粘贴
-            </button>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button type="button" class="icon-btn" id="toggle-space-switch-btn" style="width:auto; height:24px; padding:0 8px; font-size:0.6875rem; border-color:${spaceAutoSwitch ? 'var(--accent)' : 'var(--border-color)'}; background:${spaceAutoSwitch ? 'var(--accent-light)' : 'var(--bg-card)'}; color:${spaceAutoSwitch ? 'var(--accent)' : 'var(--text-muted)'}; font-weight:600;" title="输入空格或按空格键时自动生成细项并切换至下一项">
+                ⌨️ 空格自动切项: ${spaceAutoSwitch ? '开' : '关'}
+              </button>
+              <button type="button" class="icon-btn" id="toggle-batch-sub-btn" style="width:auto; height:24px; padding:0 8px; font-size:0.6875rem; color:var(--accent); border-color:var(--accent-light); background:var(--accent-light);">
+                📋 批量多行
+              </button>
+            </div>
           </div>
           <div id="subitems-container">
             ${renderSubItemsHtml()}
           </div>
           <div style="display:flex; gap:6px; margin-top:8px;">
-            <input type="text" id="new-sub-input" placeholder="输入细项名称（支持直接粘贴多行）" 
+            <input type="text" id="new-sub-input" placeholder="${spaceAutoSwitch ? '输入细项（输入空格自动生成并切下一项）' : '输入细项名称（支持直接粘贴多行）'}" 
               style="flex:1; padding:8px 10px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.8125rem;" />
             <button type="button" class="icon-btn" id="add-sub-btn" style="width:auto; padding:0 12px; font-size:0.75rem; font-weight:600; background:var(--bg-card); border:1px solid var(--border-color); color:var(--text-main);">
               + 添加
@@ -162,9 +171,9 @@ export class ItemModal {
           <!-- 批量多行识别输入面板 -->
           <div id="batch-sub-panel" style="display:none; margin-top:8px; padding:10px; background:var(--bg-card-subtle); border-radius:var(--radius-md); border:1px solid var(--border-color);">
             <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">
-              ⚡ 批量识别多行文字（自动按换行解析，每行一个子任务）：
+              ⚡ 批量识别多行/空格文字（自动按换行或空格解析，每行/词一个子任务）：
             </div>
-            <textarea id="batch-sub-textarea" rows="4" placeholder="粘贴多行文本，例如：&#10;消火栓铅封完好&#10;消防通道无堆物&#10;应急照明灯工作正常&#10;安全出口标志清晰" 
+            <textarea id="batch-sub-textarea" rows="4" placeholder="粘贴多行或空格分隔文本，例如：&#10;消火栓铅封完好 消防通道无堆物&#10;应急照明灯工作正常 安全出口标志清晰" 
               style="width:100%; padding:8px 10px; border-radius:var(--radius-sm); border:1px solid var(--border-color); background:var(--bg-card); color:var(--text-main); font-size:0.8125rem; font-family:var(--font-sans); resize:vertical; outline:none;"></textarea>
             <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
               <button type="button" class="icon-btn" id="cancel-batch-sub-btn" style="width:auto; height:28px; padding:0 10px; font-size:0.75rem;">取消</button>
@@ -270,6 +279,29 @@ export class ItemModal {
       };
       bindSubDeleteEvents();
 
+      // 空格自动切换交互控制
+      const spaceSwitchBtn = card.querySelector('#toggle-space-switch-btn') as HTMLElement;
+      const updateSpaceSwitchUi = () => {
+        if (!spaceSwitchBtn) return;
+        spaceSwitchBtn.innerHTML = `⌨️ 空格自动切项: ${spaceAutoSwitch ? '开' : '关'}`;
+        spaceSwitchBtn.style.borderColor = spaceAutoSwitch ? 'var(--accent)' : 'var(--border-color)';
+        spaceSwitchBtn.style.background = spaceAutoSwitch ? 'var(--accent-light)' : 'var(--bg-card)';
+        spaceSwitchBtn.style.color = spaceAutoSwitch ? 'var(--accent)' : 'var(--text-muted)';
+        if (newSubInput) {
+          newSubInput.placeholder = spaceAutoSwitch
+            ? '输入细项（输入空格自动生成并切下一项）'
+            : '输入细项名称（支持直接粘贴多行）';
+        }
+      };
+
+      spaceSwitchBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        spaceAutoSwitch = !spaceAutoSwitch;
+        DutyStorage.saveSettings({ subItemSpaceAutoSwitch: spaceAutoSwitch });
+        NativeBridgeService.triggerLightHaptic();
+        updateSpaceSwitchUi();
+      });
+
       // 批量多行识别控制
       const batchPanel = card.querySelector('#batch-sub-panel') as HTMLElement;
       const toggleBatchBtn = card.querySelector('#toggle-batch-sub-btn') as HTMLElement;
@@ -278,8 +310,9 @@ export class ItemModal {
       const cancelBatchBtn = card.querySelector('#cancel-batch-sub-btn') as HTMLElement;
 
       const addSubItemsFromText = (text: string) => {
+        const delimiter = spaceAutoSwitch ? /[\r\n\s]+/ : /\r?\n/;
         const lines = text
-          .split(/\r?\n/)
+          .split(delimiter)
           .map(l => l.trim().replace(/^[-*•\d+.\s、]+/, '').trim())
           .filter(Boolean);
         if (lines.length === 0) return;
@@ -316,11 +349,11 @@ export class ItemModal {
         }
       });
 
-      // 添加新细项（支持单行及单行框直接粘贴多行）
+      // 添加新细项（支持单行、空格快速分段及粘贴多行）
       const handleAddSub = () => {
         const text = newSubInput.value.trim();
         if (!text) return;
-        if (text.includes('\n')) {
+        if (text.includes('\n') || (spaceAutoSwitch && /\s/.test(text))) {
           addSubItemsFromText(text);
         } else {
           tempSubItems.push({
@@ -334,9 +367,56 @@ export class ItemModal {
         newSubInput.value = '';
       };
 
+      // 实时监听输入：当开启空格自动切换时，输入空格自动生成细项并切换至下一项
+      newSubInput?.addEventListener('input', () => {
+        if (!spaceAutoSwitch) return;
+        const rawVal = newSubInput.value;
+        if (/\s/.test(rawVal)) {
+          // 以空格结尾：用户刚敲击空格完成一个细项的输入
+          if (/\s$/.test(rawVal)) {
+            const tokens = rawVal
+              .split(/\s+/)
+              .map(t => t.trim().replace(/^[-*•\d+.\s、]+/, '').trim())
+              .filter(Boolean);
+            if (tokens.length > 0) {
+              tokens.forEach((t, i) => {
+                tempSubItems.push({
+                  id: `sub_${Date.now()}_${tempSubItems.length}_${i}`,
+                  title: t
+                });
+              });
+              subContainer.innerHTML = renderSubItemsHtml();
+              bindSubDeleteEvents();
+              NativeBridgeService.triggerLightHaptic();
+            }
+            newSubInput.value = '';
+          } else {
+            // 包含多个空格，把前面完整的词提取为细项
+            const tokens = rawVal
+              .split(/\s+/)
+              .map(t => t.trim().replace(/^[-*•\d+.\s、]+/, '').trim())
+              .filter(Boolean);
+            if (tokens.length > 1) {
+              const finished = tokens.slice(0, -1);
+              const ongoing = tokens[tokens.length - 1];
+              finished.forEach((t, i) => {
+                tempSubItems.push({
+                  id: `sub_${Date.now()}_${tempSubItems.length}_${i}`,
+                  title: t
+                });
+              });
+              subContainer.innerHTML = renderSubItemsHtml();
+              bindSubDeleteEvents();
+              NativeBridgeService.triggerLightHaptic();
+              newSubInput.value = ongoing;
+            }
+          }
+        }
+      });
+
       newSubInput?.addEventListener('paste', (e) => {
         const pasted = e.clipboardData?.getData('text');
-        if (pasted && pasted.includes('\n')) {
+        if (pasted && (pasted.includes('\n') || (spaceAutoSwitch && /\s/.test(pasted)))) {
           e.preventDefault();
           addSubItemsFromText(pasted);
           newSubInput.value = '';
@@ -345,7 +425,20 @@ export class ItemModal {
 
       addSubBtn?.addEventListener('click', handleAddSub);
       newSubInput?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
+        if (spaceAutoSwitch && (e.key === ' ' || e.code === 'Space')) {
+          const text = newSubInput.value.trim().replace(/^[-*•\d+.\s、]+/, '').trim();
+          if (text) {
+            e.preventDefault();
+            tempSubItems.push({
+              id: `sub_${Date.now()}_${tempSubItems.length}`,
+              title: text
+            });
+            subContainer.innerHTML = renderSubItemsHtml();
+            bindSubDeleteEvents();
+            NativeBridgeService.triggerLightHaptic();
+            newSubInput.value = '';
+          }
+        } else if (e.key === 'Enter') {
           e.preventDefault();
           handleAddSub();
         }

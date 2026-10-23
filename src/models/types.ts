@@ -35,7 +35,9 @@ export interface DutyItem {
   completedAt: string | null;
   subItems: DutySubItem[];
   isExpanded?: boolean;
-  autoFold?: boolean; // 非必须拍照条目是否在完成后自动折叠
+  autoFold?: boolean; // 完成后自动折叠（默认 true）
+  reminderTime?: string; // 条目自定义提醒时间 (如 "09:30")
+  reminderEnabled?: boolean; // 条目到点提醒开关
 }
 
 export interface DutyPost {
@@ -44,6 +46,8 @@ export interface DutyPost {
   name: string;
   description?: string;
   sortOrder: number;
+  alertTime?: string; // 岗位巡查通知时间 (如 "10:00")
+  alertEnabled?: boolean; // 岗位巡查通知开关
 }
 
 export type TaskStatus = 'IN_PROGRESS' | 'COMPLETED';
@@ -98,6 +102,7 @@ export interface UserSettings {
   autoArchiveZip: boolean;
   handoverExternalUrl: string; // 预设值班交班外链 (如腾讯文档/飞书/企业微信表单)
   handoverTarget: 'url' | 'wechat' | 'tim' | 'none'; // 协同跳转目标
+  subItemSpaceAutoSwitch?: boolean; // 细项录入根据空格自动切换
 }
 
 export interface DutyArchive {
@@ -114,6 +119,6 @@ export interface DutyArchive {
   summaryText: string;
 }
 
-export const APP_VERSION = '1.0.2';
-export const APP_BUILD = 3;
+export const APP_VERSION = '1.0.3';
+export const APP_BUILD = 4;
 

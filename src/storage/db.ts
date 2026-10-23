@@ -27,7 +27,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   bootRestoreEnabled: true,
   autoArchiveZip: true,
   handoverExternalUrl: '',
-  handoverTarget: 'url'
+  handoverTarget: 'url',
+  subItemSpaceAutoSwitch: true
 };
 
 export interface ConfigImportStats {
@@ -179,6 +180,64 @@ export class DutyStorage {
     localStorage.setItem(STORAGE_KEYS.TASKS, tasksJson);
     // 关键：同步备份至 Android 原生 SharedPreferences 金库（APK 更新不丢数据）
     NativeBridgeService.backupData('oxherd_tasks', tasksJson);
+
+    // 动态同步精确闹钟：支持每个岗位及条目的到点提醒
+    this.syncAlarmsForTask(task);
+  }
+
+  static timeStringToMillis(timeStr: string): number {
+    const parts = timeStr.split(':').map(n => parseInt(n, 10));
+    const hours = parts[0] || 0;
+    const minutes = parts[1] || 0;
+    const d = new Date();
+    d.setHours(hours, minutes, 0, 0);
+    if (d.getTime() <= Date.now()) {
+      d.setDate(d.getDate() + 1);
+    }
+    return d.getTime();
+  }
+
+  static syncAlarmsForTask(task: DutyTask): void {
+    const settings = this.getSettings();
+    if (!settings.notificationsEnabled) return;
+
+    // 1. 岗位级提醒：每个岗位的通知时间都可以设置
+    task.posts.forEach(post => {
+      if (post.alertEnabled && post.alertTime) {
+        const triggerAtMillis = this.timeStringToMillis(post.alertTime);
+        NativeBridgeService.scheduleAlarm({
+          taskId: `post_${post.id}`,
+          title: `oxherd 岗位巡更提醒`,
+          message: `到达【${post.name}】预设巡查时间（${post.alertTime}），请前往现场核验`,
+          triggerAtMillis,
+          sound: settings.alarmSoundEnabled,
+          vibrate: settings.strongVibrateEnabled
+        });
+      } else {
+        NativeBridgeService.cancelAlarm(`post_${post.id}`);
+      }
+    });
+
+    // 2. 条目级提醒：在设置中设置条目的提醒
+    task.items.forEach(item => {
+      const isScheduled = item.itemType === 'SCHEDULED';
+      const alertTime = item.reminderTime || (isScheduled ? item.startTime : undefined);
+      const shouldAlert = !item.isCompleted && (item.reminderEnabled || (isScheduled && settings.onDutyStartAlert));
+
+      if (shouldAlert && alertTime) {
+        const triggerAtMillis = this.timeStringToMillis(alertTime);
+        NativeBridgeService.scheduleAlarm({
+          taskId: `item_${item.id}`,
+          title: `oxherd 巡检条目提醒`,
+          message: `请核验条目：${item.title}${item.requirePhoto ? '（需拍照）' : ''}`,
+          triggerAtMillis,
+          sound: settings.alarmSoundEnabled,
+          vibrate: settings.strongVibrateEnabled
+        });
+      } else {
+        NativeBridgeService.cancelAlarm(`item_${item.id}`);
+      }
+    });
   }
 
   /**

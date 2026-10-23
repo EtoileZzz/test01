@@ -209,6 +209,14 @@ export class ModalManager {
               <div class="post-item-info">
                 <div class="post-item-title">${post.name} ${isActive ? '📍 (当前岗位)' : ''}</div>
                 <div class="post-item-sub">${items.length} 个巡检条目 · 已核验 ${done} 个</div>
+                <div style="display:flex; align-items:center; gap:8px; margin-top:6px; font-size:0.75rem;" class="post-alert-setting-row" data-post-id="${post.id}">
+                  <span style="color:var(--text-muted);">🔔 巡查提醒：</span>
+                  <input type="time" class="time-input post-alert-time-input" data-post-id="${post.id}" value="${post.alertTime || '10:00'}"
+                    style="padding:2px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
+                  <div class="toggle-switch ${post.alertEnabled ? 'on' : ''} toggle-post-alert-switch" data-post-id="${post.id}" style="width:34px; height:18px; cursor:pointer;" title="${post.alertEnabled ? '提醒已开启' : '提醒已关闭'}">
+                    <div class="toggle-knob" style="width:14px; height:14px;"></div>
+                  </div>
+                </div>
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
                 <button class="icon-btn edit-post-btn" data-post-id="${post.id}" title="重命名岗位" style="width:28px; height:28px;">
@@ -304,6 +312,18 @@ export class ModalManager {
                   <div class="toggle-knob" style="width:16px; height:16px;"></div>
                 </div>
               </div>
+
+              <!-- 条目到点提醒设置 -->
+              <div class="item-reminder-row" data-item-id="${item.id}" style="display:flex; align-items:center; justify-content:space-between; padding-top:4px; font-size:0.75rem;">
+                <span style="color:var(--text-muted);">⏰ 到点核验提醒：</span>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <input type="time" class="time-input item-reminder-time-input" data-item-id="${item.id}" value="${item.reminderTime || item.startTime || '09:30'}"
+                    style="padding:2px 6px; border-radius:4px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main); font-size:0.75rem; font-family:var(--font-mono);" />
+                  <div class="toggle-switch ${item.reminderEnabled ? 'on' : ''} toggle-item-reminder-switch" data-item-id="${item.id}" style="width:34px; height:18px; cursor:pointer;" title="${item.reminderEnabled ? '到点提醒已开启' : '到点提醒已关闭'}">
+                    <div class="toggle-knob" style="width:14px; height:14px;"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           `;
         })
@@ -343,7 +363,16 @@ export class ModalManager {
       // 切换岗位
       card.querySelectorAll('.post-switch-item').forEach(el => {
         el.addEventListener('click', (e) => {
-          if ((e.target as HTMLElement).closest('.edit-post-btn') || (e.target as HTMLElement).closest('.del-post-btn')) return;
+          const target = e.target as HTMLElement;
+          if (
+            target.closest('.edit-post-btn') ||
+            target.closest('.del-post-btn') ||
+            target.closest('.post-alert-setting-row') ||
+            target.closest('.post-alert-time-input') ||
+            target.closest('.toggle-post-alert-switch')
+          ) {
+            return;
+          }
           const postId = el.getAttribute('data-post-id');
           if (postId) {
             task.currentPostId = postId;
@@ -351,6 +380,39 @@ export class ModalManager {
             NativeBridgeService.triggerLightHaptic();
             onSelectPost(postId);
             close();
+          }
+        });
+      });
+
+      // 岗位巡查提醒时间与开关
+      card.querySelectorAll('.post-alert-time-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+          e.stopPropagation();
+          const postId = input.getAttribute('data-post-id');
+          const val = (input as HTMLInputElement).value;
+          const post = task.posts.find(p => p.id === postId);
+          if (post && val) {
+            post.alertTime = val;
+            DutyStorage.saveTask(task);
+            onTaskUpdated();
+          }
+        });
+      });
+
+      card.querySelectorAll('.toggle-post-alert-switch').forEach(sw => {
+        sw.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const postId = sw.getAttribute('data-post-id');
+          const post = task.posts.find(p => p.id === postId);
+          if (post) {
+            post.alertEnabled = !post.alertEnabled;
+            if (post.alertEnabled && !post.alertTime) {
+              post.alertTime = '10:00';
+            }
+            DutyStorage.saveTask(task);
+            NativeBridgeService.triggerLightHaptic();
+            sw.classList.toggle('on', !!post.alertEnabled);
+            onTaskUpdated();
           }
         });
       });
@@ -532,6 +594,39 @@ export class ModalManager {
             }
           });
         });
+
+        // 条目自定义到点提醒时间
+        card.querySelectorAll('.item-reminder-time-input').forEach(input => {
+          input.addEventListener('change', () => {
+            const itemId = input.getAttribute('data-item-id');
+            const val = (input as HTMLInputElement).value;
+            const item = task.items.find(i => i.id === itemId);
+            if (item && val) {
+              item.reminderTime = val;
+              DutyStorage.saveTask(task);
+              onTaskUpdated();
+            }
+          });
+        });
+
+        // 条目到点提醒开关
+        card.querySelectorAll('.toggle-item-reminder-switch').forEach(sw => {
+          sw.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = sw.getAttribute('data-item-id');
+            const item = task.items.find(i => i.id === itemId);
+            if (item) {
+              item.reminderEnabled = !item.reminderEnabled;
+              if (item.reminderEnabled && !item.reminderTime) {
+                item.reminderTime = item.startTime || '09:30';
+              }
+              DutyStorage.saveTask(task);
+              NativeBridgeService.triggerLightHaptic();
+              sw.classList.toggle('on', !!item.reminderEnabled);
+              onTaskUpdated();
+            }
+          });
+        });
       };
 
       const refreshItemsList = () => {
@@ -581,6 +676,20 @@ export class ModalManager {
           <button class="icon-btn save-handover-url-btn" style="flex:1; height:34px; font-size:0.75rem; font-weight:600; background:var(--accent); color:white; border:none;">
             💾 保存填报链接
           </button>
+        </div>
+      </div>
+
+      <!-- 细项交互与录入偏好 -->
+      <div class="settings-group">
+        <div class="settings-group-title">⌨️ 细分子条目录入偏好</div>
+        <div class="settings-row">
+          <div class="settings-row-label">
+            <span class="settings-main-label">细项录入空格自动切换</span>
+            <span class="settings-sub-label">输入细项时按空格键或输入空格立即自动生成细项并切换至下一项</span>
+          </div>
+          <div class="toggle-switch ${settings.subItemSpaceAutoSwitch !== false ? 'on' : ''}" id="toggle-sub-space-switch">
+            <div class="toggle-knob"></div>
+          </div>
         </div>
       </div>
 
@@ -749,6 +858,17 @@ export class ModalManager {
         DutyStorage.saveSettings({ handoverExternalUrl: url });
         NativeBridgeService.triggerLightHaptic();
         alert('值班填报链接已保存！');
+      });
+
+      // 细分子条目录入空格自动切换开关
+      const toggleSubSpace = card.querySelector('#toggle-sub-space-switch');
+      toggleSubSpace?.addEventListener('click', () => {
+        const current = settings.subItemSpaceAutoSwitch !== false;
+        const updated = !current;
+        settings.subItemSpaceAutoSwitch = updated;
+        DutyStorage.saveSettings({ subItemSpaceAutoSwitch: updated });
+        toggleSubSpace.classList.toggle('on', updated);
+        NativeBridgeService.triggerLightHaptic();
       });
 
       // 保存至手机文件 (JSON，绝不用剪贴板)

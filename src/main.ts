@@ -179,6 +179,45 @@ class OxherdApp {
     };
     undoBtn?.addEventListener('pointerdown', onUndoTrigger);
     undoBtn?.addEventListener('click', onUndoTrigger);
+
+    // 7. 键盘 Space 空格快捷操作（支持巡检PDA实体按键/外接键盘：按空格自动完成或切换细项）
+    window.addEventListener('keydown', (e) => {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)) {
+        return;
+      }
+      if (document.querySelector('.modal-sheet-overlay.open')) {
+        return;
+      }
+      if (e.code === 'Space' || e.key === ' ') {
+        e.preventDefault();
+        if (!this.currentTask) return;
+        const currentPostItems = this.currentTask.items.filter(i => i.postId === this.currentTask!.currentPostId);
+        for (const item of currentPostItems) {
+          if (!item.isCompleted) {
+            const uncompletedSub = item.subItems.find(s => !s.isCompleted);
+            if (uncompletedSub) {
+              uncompletedSub.isCompleted = true;
+              uncompletedSub.completedAt = new Date().toISOString();
+              if (item.subItems.every(s => s.isCompleted)) {
+                item.isCompleted = true;
+                item.completedAt = new Date().toISOString();
+                if (item.autoFold !== false) {
+                  item.isExpanded = false;
+                }
+              }
+              DutyStorage.saveTask(this.currentTask);
+              NativeBridgeService.triggerLightHaptic();
+              this.render();
+              return;
+            } else {
+              this.completeItem(item);
+              return;
+            }
+          }
+        }
+      }
+    });
   }
 
   // ── 记录高精度撤销快照 ──────────────────────────────────────
@@ -368,9 +407,6 @@ class OxherdApp {
       task.currentPostId = task.posts[0].id;
     }
 
-    const shiftBadge = document.getElementById('shift-badge');
-    if (shiftBadge) shiftBadge.textContent = task.shiftName;
-
     const taskTitleDisplay = document.getElementById('task-title-display');
     if (taskTitleDisplay) taskTitleDisplay.textContent = task.title.replace(/\s*\(\d{4}-\d{2}-\d{2}\)/g, '');
 
@@ -416,13 +452,66 @@ class OxherdApp {
       const cardEl = container.querySelector(`[data-item-card-id="${item.id}"]`) as HTMLElement;
       if (!cardEl) return;
 
-      // 1:1 跟手左右双向划去
-      bindCardSwipe(cardEl, {
-        threshold: 65,
-        onSwipeComplete: () => {
-          this.completeItem(item);
-        }
-      });
+      // 1:1 跟手左右双向划去（仅未完成条目支持滑动；已完成条目禁止滑动，长按 450ms 撤销完成）
+      if (!item.isCompleted) {
+        bindCardSwipe(cardEl, {
+          threshold: 65,
+          onSwipeComplete: () => {
+            this.completeItem(item);
+          }
+        });
+      } else {
+        // 已完成条目：长按卡片 450ms 撤销完成
+        let longPressTimer: any = null;
+        let startX = 0;
+        let startY = 0;
+
+        const onTouchStart = (e: TouchEvent | MouseEvent) => {
+          const target = e.target as HTMLElement;
+          if (
+            target.closest('button') ||
+            target.closest('.item-checkbox') ||
+            target.closest('.photo-thumb-box') ||
+            target.closest('.subitem-row')
+          ) {
+            return;
+          }
+          const pt = 'touches' in e ? e.touches[0] : (e as MouseEvent);
+          startX = pt.clientX;
+          startY = pt.clientY;
+
+          longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            NativeBridgeService.triggerCompleteHaptic();
+            this.uncheckItem(item);
+          }, 450);
+        };
+
+        const onTouchMove = (e: TouchEvent | MouseEvent) => {
+          if (!longPressTimer) return;
+          const pt = 'touches' in e ? e.touches[0] : (e as MouseEvent);
+          if (Math.abs(pt.clientX - startX) > 10 || Math.abs(pt.clientY - startY) > 10) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        };
+
+        const onTouchEnd = () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        };
+
+        cardEl.addEventListener('touchstart', onTouchStart, { passive: true });
+        cardEl.addEventListener('touchmove', onTouchMove, { passive: true });
+        cardEl.addEventListener('touchend', onTouchEnd);
+        cardEl.addEventListener('touchcancel', onTouchEnd);
+        cardEl.addEventListener('mousedown', onTouchStart);
+        cardEl.addEventListener('mousemove', onTouchMove);
+        cardEl.addEventListener('mouseup', onTouchEnd);
+        cardEl.addEventListener('mouseleave', onTouchEnd);
+      }
 
       // 勾选主项复选框
       const checkbox = cardEl.querySelector('.item-checkbox') as HTMLElement;
@@ -705,7 +794,10 @@ class OxherdApp {
 
     return `
       <div class="duty-item-card ${isDone ? 'completed-card' : ''} ${!isExpanded ? 'is-folded' : ''}" data-item-card-id="${item.id}">
-        <!-- 左右双向滑动显露层 (带左侧与右侧提示) -->
+        <!-- 左右双向滑动显露层 (仅未完成条目渲染) -->
+        ${
+          !isDone
+            ? `
         <div class="swipe-backdrop">
           <div class="swipe-hint-left">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -720,6 +812,9 @@ class OxherdApp {
             </svg>
           </div>
         </div>
+        `
+            : ''
+        }
 
         <div class="item-content-wrapper">
           <div class="item-main-row">
@@ -768,12 +863,12 @@ class OxherdApp {
                 ${
                   isDone
                     ? `
-                  <div class="item-timestamp-badge">
+                  <div class="item-timestamp-badge" title="长按卡片可撤销完成">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                       <circle cx="12" cy="12" r="10"></circle>
                       <polyline points="12 6 12 12 16 14"></polyline>
                     </svg>
-                    <span>${timeFormatted} 已核验</span>
+                    <span>${timeFormatted} 已核验 · 长按可撤销</span>
                   </div>
                 `
                     : '<span style="color:var(--text-muted); font-size:0.75rem;">待巡检（左右轻划即划去）</span>'
