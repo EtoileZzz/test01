@@ -3,8 +3,55 @@ import { NativeBridgeService } from '../services/nativeBridge';
 import { APP_VERSION, APP_BUILD, type DutyTask, type UserSettings, type DutyPost, type DutyItem } from '../models/types';
 
 export class ModalManager {
-  // ── 通用创建与销毁模态框 ──────────────────────────────────────
+  private static modalStack: Array<() => void> = [];
+  private static isBackGestureInitialized = false;
+
+  /**
+   * 初始化侧滑返回与 Android 原生返回键事件拦截
+   */
+  static initBackGesture(): void {
+    if (this.isBackGestureInitialized) return;
+    this.isBackGestureInitialized = true;
+
+    // 1. Android 原生返回键 / 全面屏侧滑返回手势
+    NativeBridgeService.setupBackButton(() => {
+      return this.closeTopModal();
+    });
+
+    // 2. 浏览器/WebView popstate 历史记录后退拦截
+    window.addEventListener('popstate', () => {
+      if (this.hasOpenModal()) {
+        this.closeTopModal(false);
+      }
+    });
+  }
+
+  static hasOpenModal(): boolean {
+    return this.modalStack.length > 0 || !!document.getElementById('active-modal-overlay');
+  }
+
+  static closeTopModal(popHistory = true): boolean {
+    const closer = this.modalStack.pop();
+    if (closer) {
+      closer();
+      if (popHistory && window.history.state?.modalOpen) {
+        window.history.back();
+      }
+      return true;
+    }
+    const overlay = document.getElementById('active-modal-overlay');
+    if (overlay) {
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 280);
+      return true;
+    }
+    return false;
+  }
+
+  // ── 通用创建与销毁模态框（含丝滑弹出动效、手势侧滑返回与下拉退出） ──
   static openSheet(title: string, contentHtml: string, onMounted?: (card: HTMLElement) => void): () => void {
+    this.initBackGesture();
+
     const existing = document.getElementById('active-modal-overlay');
     if (existing) existing.remove();
 
@@ -33,25 +80,110 @@ export class ModalManager {
     `;
 
     document.body.appendChild(overlay);
+    const card = overlay.querySelector('#active-sheet-card') as HTMLElement;
 
-    requestAnimationFrame(() => {
-      overlay.classList.add('open');
-    });
+    // 关键：强制同步回流，让初始 translateY(100%) 在渲染管线中立即生效，随后添加 .open 触发弹窗进入动效
+    void overlay.offsetHeight;
+    if (card) void card.offsetHeight;
+    overlay.classList.add('open');
+
+    // 写入 history state 使得系统侧滑后退时能触发 popstate
+    try {
+      window.history.pushState({ modalOpen: true }, '');
+    } catch (e) {}
+
+    let isClosed = false;
+    const close = () => {
+      if (isClosed) return;
+      isClosed = true;
+      const idx = ModalManager.modalStack.indexOf(close);
+      if (idx !== -1) ModalManager.modalStack.splice(idx, 1);
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 300);
+    };
+
+    ModalManager.modalStack.push(close);
 
     const closeBtn = overlay.querySelector('#modal-close-btn') as HTMLElement;
-
-    function close() {
-      overlay.classList.remove('open');
-      setTimeout(() => overlay.remove(), 280);
-    }
-
-    closeBtn.onclick = close;
+    if (closeBtn) closeBtn.onclick = close;
     overlay.onclick = (e) => {
       if (e.target === overlay) close();
     };
 
-    if (onMounted) {
-      onMounted(overlay.querySelector('#active-sheet-card') as HTMLElement);
+    // ── 窗口内侧滑返回手势 & 下拉退出手势 ──
+    if (card) {
+      let startX = 0;
+      let startY = 0;
+      let isTracking = false;
+      let swipeDirection: 'horizontal' | 'vertical' | null = null;
+
+      card.addEventListener('touchstart', (e: TouchEvent) => {
+        if (e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startY = touch.clientY;
+        const target = e.target as HTMLElement;
+        const isHeader = !!target.closest('.sheet-header') || !!target.closest('.sheet-drag-handle');
+        // 支持从左边缘 60px 内侧滑返回，或在顶栏手柄上下拉/侧滑
+        if (startX <= 60 || isHeader) {
+          isTracking = true;
+          swipeDirection = null;
+          card.style.transition = 'none';
+        }
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e: TouchEvent) => {
+        if (!isTracking) return;
+        const touch = e.touches[0];
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+
+        if (!swipeDirection) {
+          if (Math.abs(deltaX) > 8 || Math.abs(deltaY) > 8) {
+            swipeDirection = Math.abs(deltaX) > Math.abs(deltaY) ? 'horizontal' : 'vertical';
+          }
+        }
+
+        if (swipeDirection === 'horizontal' && deltaX > 0) {
+          card.style.transform = `translateX(${deltaX}px)`;
+          overlay.style.backgroundColor = `rgba(0, 0, 0, ${Math.max(0.08, 0.5 - deltaX / 400)})`;
+        } else if (swipeDirection === 'vertical' && deltaY > 0) {
+          card.style.transform = `translateY(${deltaY}px)`;
+          overlay.style.backgroundColor = `rgba(0, 0, 0, ${Math.max(0.08, 0.5 - deltaY / 400)})`;
+        }
+      }, { passive: true });
+
+      const handleTouchEnd = (e: TouchEvent) => {
+        if (!isTracking) return;
+        isTracking = false;
+        const touch = e.changedTouches[0];
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+
+        card.style.transition = 'transform 260ms var(--ease-ios)';
+        overlay.style.transition = 'opacity 260ms ease, background-color 260ms ease';
+
+        if ((swipeDirection === 'horizontal' && deltaX > 75) || (swipeDirection === 'vertical' && deltaY > 75)) {
+          NativeBridgeService.triggerLightHaptic();
+          if (swipeDirection === 'horizontal') {
+            card.style.transform = `translateX(100%)`;
+          } else {
+            card.style.transform = `translateY(100%)`;
+          }
+          close();
+        } else {
+          card.style.transform = '';
+          overlay.style.backgroundColor = '';
+        }
+        swipeDirection = null;
+      };
+
+      card.addEventListener('touchend', handleTouchEnd, { passive: true });
+      card.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+    }
+
+    if (onMounted && card) {
+      onMounted(card);
     }
 
     return close;
@@ -165,10 +297,10 @@ export class ModalManager {
                 </div>
               </div>
 
-              <!-- 自动折叠选项 (仅对非必须拍照条目生效) -->
-              <div class="autofold-row" data-item-id="${item.id}" style="display:${item.requirePhoto ? 'none' : 'flex'}; align-items:center; justify-content:space-between; padding-top:4px; font-size:0.75rem;">
+              <!-- 自动折叠选项 (对所有条目生效，默认开启) -->
+              <div class="autofold-row" data-item-id="${item.id}" style="display:flex; align-items:center; justify-content:space-between; padding-top:4px; font-size:0.75rem;">
                 <span style="color:var(--text-muted);">📦 完成后自动折叠：</span>
-                <div class="toggle-switch ${item.autoFold ? 'on' : ''} toggle-autofold-switch" data-item-id="${item.id}" style="width:36px; height:20px; cursor:pointer;">
+                <div class="toggle-switch ${(item.autoFold !== false) ? 'on' : ''} toggle-autofold-switch" data-item-id="${item.id}" style="width:36px; height:20px; cursor:pointer;">
                   <div class="toggle-knob" style="width:16px; height:16px;"></div>
                 </div>
               </div>
@@ -353,7 +485,6 @@ export class ModalManager {
             const item = task.items.find(i => i.id === itemId);
             if (!item) return;
             item.requirePhoto = !item.requirePhoto;
-            if (item.requirePhoto) item.autoFold = false;
             DutyStorage.saveTask(task);
             NativeBridgeService.triggerLightHaptic();
             refreshItemsList();
@@ -369,7 +500,7 @@ export class ModalManager {
             if (!itemId) return;
             DutyStorage.toggleItemAutoFold(task, itemId);
             const item = task.items.find(i => i.id === itemId);
-            sw.classList.toggle('on', !!item?.autoFold);
+            sw.classList.toggle('on', item?.autoFold !== false);
             NativeBridgeService.triggerLightHaptic();
             onTaskUpdated();
           });
@@ -571,16 +702,28 @@ export class ModalManager {
             <span class="settings-main-label">厂商自启动权限</span>
             <span class="settings-sub-label">当前识别设备：${vendorInfo}</span>
           </div>
-          <button class="icon-btn" id="vendor-autostart-btn" style="width:auto; height:32px; padding:0 12px; font-size:0.75rem; font-weight:600; background:var(--bg-elevated);">
+          <button class="icon-btn" id="vendor-autostart-btn" style="width:auto; height:32px; padding:0 12px; font-size:0.75rem; font-weight:600; background:var(--bg-elevated); flex-shrink:0;">
             直达设置 ↗
           </button>
         </div>
       </div>
 
-      <!-- 版本信息与发布声明 -->
-      <div style="text-align:center; padding:18px 0 8px; font-size:0.75rem; color:var(--text-muted); line-height:1.6;">
-        <div style="font-weight:700; color:var(--text-main); font-size:0.8125rem;">oxherd 巡更值班助手</div>
-        <div>当前版本：v${APP_VERSION} (Build ${APP_BUILD})</div>
+      <!-- 版本信息与在线检查更新 -->
+      <div class="settings-group">
+        <div class="settings-group-title">🚀 软件版本与在线更新</div>
+        <div class="settings-row" style="align-items:center;">
+          <div class="settings-row-label">
+            <span class="settings-main-label">oxherd 巡更值班助手</span>
+            <span class="settings-sub-label">当前版本：v${APP_VERSION} (Build ${APP_BUILD})</span>
+          </div>
+          <button class="icon-btn" id="check-update-btn" style="width:auto; height:32px; padding:0 14px; font-size:0.75rem; font-weight:700; background:var(--accent); color:white; border:none; gap:6px; flex-shrink:0;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <span id="check-update-btn-text">检查更新</span>
+          </button>
+        </div>
+        <div id="update-result-box" style="display:none; margin-top:8px; padding:10px 12px; border-radius:var(--radius-sm); font-size:0.8125rem; line-height:1.5;"></div>
       </div>
     `;
 
@@ -747,6 +890,96 @@ export class ModalManager {
         const res = await NativeBridgeService.openVendorAutoStartSettings();
         if (!res.success) {
           alert(`已尝试唤起 ${res.vendor} 自启动管理界面。请在手机「设置 -> 应用管理 -> oxherd」中开启自启动和后台无限制保护。`);
+        }
+      });
+
+      // 检查在线更新 (GitHub Releases API)
+      const checkUpdateBtn = card.querySelector('#check-update-btn') as HTMLButtonElement;
+      const checkUpdateText = card.querySelector('#check-update-btn-text') as HTMLElement;
+      const resultBox = card.querySelector('#update-result-box') as HTMLElement;
+
+      checkUpdateBtn?.addEventListener('click', async () => {
+        NativeBridgeService.triggerLightHaptic();
+        checkUpdateBtn.disabled = true;
+        checkUpdateText.textContent = '检查中...';
+        resultBox.style.display = 'block';
+        resultBox.style.background = 'var(--bg-card)';
+        resultBox.style.border = '1px solid var(--border-color)';
+        resultBox.style.color = 'var(--text-muted)';
+        resultBox.innerHTML = '正在连接 GitHub 检索最新版本...';
+
+        try {
+          const resp = await fetch('https://api.github.com/repos/EtoileZzz/test01/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github.v3+json' }
+          });
+
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+          }
+
+          const data = await resp.json();
+          const latestTag = (data.tag_name || '').replace(/^v/, '');
+          const currentTag = APP_VERSION.replace(/^v/, '');
+
+          const compareVersions = (v1: string, v2: string) => {
+            const p1 = v1.split('.').map(n => parseInt(n, 10) || 0);
+            const p2 = v2.split('.').map(n => parseInt(n, 10) || 0);
+            for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+              const a = p1[i] || 0;
+              const b = p2[i] || 0;
+              if (a > b) return 1;
+              if (a < b) return -1;
+            }
+            return 0;
+          };
+
+          const isNewer = compareVersions(latestTag, currentTag) > 0;
+
+          if (isNewer) {
+            const apkAsset = (data.assets || []).find((a: any) => a.name.endsWith('.apk'));
+            const downloadUrl = apkAsset ? apkAsset.browser_download_url : data.html_url;
+
+            resultBox.style.background = 'var(--accent-light)';
+            resultBox.style.border = '1px solid var(--accent)';
+            resultBox.style.color = 'var(--text-main)';
+            resultBox.innerHTML = `
+              <div style="font-weight:700; color:var(--accent); display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                <span>🎉 发现新版本 v${latestTag}</span>
+                <span class="badge-pill" style="background:var(--accent); color:white; font-size:0.6875rem;">可升级</span>
+              </div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; white-space:pre-wrap; max-height:120px; overflow-y:auto;">${data.body ? data.body.slice(0, 300) : '包含多项功能修复与界面优化'}</div>
+              <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer" class="icon-btn" style="width:100%; height:36px; background:var(--accent); color:white; font-weight:700; font-size:0.8125rem; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:6px; border:none;">
+                ⬇️ 立即下载安装新版 APK (${apkAsset ? (apkAsset.size / 1024 / 1024).toFixed(1) + 'MB' : '最新版'})
+              </a>
+            `;
+          } else {
+            resultBox.style.background = 'var(--success-light)';
+            resultBox.style.border = '1px solid var(--success)';
+            resultBox.style.color = 'var(--success)';
+            resultBox.innerHTML = `
+              <div style="font-weight:700; display:flex; align-items:center; gap:6px;">
+                <span>✅ 当前已是最新版本 (v${APP_VERSION})</span>
+              </div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                恭喜，当前安装的已是最新稳定版本，无需更新。
+              </div>
+            `;
+          }
+        } catch (err: any) {
+          resultBox.style.background = 'var(--bg-card)';
+          resultBox.style.border = '1px solid var(--border-color)';
+          resultBox.style.color = 'var(--text-main)';
+          resultBox.innerHTML = `
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;">
+              网络连接受限或 GitHub 访问受阻。您可以直接前往 Releases 页面查看：
+            </div>
+            <a href="https://github.com/EtoileZzz/test01/releases" target="_blank" rel="noopener noreferrer" class="icon-btn" style="width:100%; height:32px; background:var(--bg-elevated); color:var(--text-main); font-size:0.75rem; font-weight:600; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:6px;">
+              🌐 打开 GitHub Releases 页面 ↗
+            </a>
+          `;
+        } finally {
+          checkUpdateBtn.disabled = false;
+          checkUpdateText.textContent = '重新检查';
         }
       });
     });

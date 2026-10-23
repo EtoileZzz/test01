@@ -1,6 +1,6 @@
 {
   "name": "oxherd",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "oxherd - 移动端流体物理动效值班打卡应用",
   "type": "module",
@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.0.0",
     "@capacitor/haptics": "^7.0.0",
     "@capacitor/status-bar": "^7.0.0",

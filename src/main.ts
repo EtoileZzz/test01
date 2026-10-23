@@ -22,7 +22,12 @@ class OxherdApp {
   private undoSnapshot: UndoSnapshot | null = null;
 
   constructor() {
+    this.initApp();
+  }
+
+  private async initApp(): Promise<void> {
     this.initTheme();
+    await DutyStorage.init();
     this.initTask();
     this.bindGlobalEvents();
     this.render();
@@ -230,8 +235,8 @@ class OxherdApp {
       sub.completedAt = item.completedAt;
     });
 
-    // 核心要求：“每个条目可以设定是否自动折叠（不是必须要求拍照的条目）”
-    if (!item.requirePhoto && item.autoFold) {
+    // 核心要求：“拍照留痕那个可以自动折叠，默认折叠设置开，完成之后自动折叠设置也保留”
+    if (item.autoFold !== false) {
       item.isExpanded = false;
     }
 
@@ -474,12 +479,23 @@ class OxherdApp {
         });
       });
 
-      // 展开/收起细分子项
+      // 展开/收起细分子项与拍照留痕
       const toggleSubBtn = cardEl.querySelector('.subitems-toggle-btn') as HTMLElement;
       toggleSubBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
-        item.isExpanded = !item.isExpanded;
+        item.isExpanded = item.isExpanded === false ? true : false;
         DutyStorage.saveTask(task);
+        NativeBridgeService.triggerLightHaptic();
+        this.render();
+      });
+
+      // 顶部折叠按钮
+      const foldBtn = cardEl.querySelector('.item-fold-btn') as HTMLElement;
+      foldBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        item.isExpanded = item.isExpanded === false ? true : false;
+        DutyStorage.saveTask(task);
+        NativeBridgeService.triggerLightHaptic();
         this.render();
       });
 
@@ -499,7 +515,7 @@ class OxherdApp {
             if (allSubDone && !item.isCompleted) {
               item.isCompleted = true;
               item.completedAt = new Date().toISOString();
-              if (!item.requirePhoto && item.autoFold) {
+              if (item.autoFold !== false) {
                 item.isExpanded = false;
               }
               this.showUndoToast(item.title);
@@ -617,12 +633,14 @@ class OxherdApp {
   // ── 渲染巡检条目卡片 HTML ────────────────────────────────────
   private renderItemCardHtml(item: DutyItem): string {
     const isDone = item.isCompleted;
+    const isExpanded = item.isExpanded !== false;
+    const isAutoFolded = isDone && item.autoFold !== false && !isExpanded;
     const timeFormatted = item.completedAt ? new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
     const hasPhotos = item.photos && item.photos.length > 0;
     const subCount = item.subItems.length;
     const subDoneCount = item.subItems.filter(s => s.isCompleted).length;
     const isScheduled = item.itemType === 'SCHEDULED';
-    const isAutoFolded = isDone && !item.requirePhoto && item.autoFold && !item.isExpanded;
+    const canFold = subCount > 0 || item.requirePhoto || hasPhotos;
 
     const photosThumbHtml = hasPhotos
       ? item.photos
@@ -638,7 +656,7 @@ class OxherdApp {
       : '';
 
     const subItemsHtml =
-      subCount > 0 && item.isExpanded
+      subCount > 0 && isExpanded
         ? `
         <div class="subitems-list">
           ${item.subItems
@@ -660,8 +678,33 @@ class OxherdApp {
       `
         : '';
 
+    const photosPanelHtml = isExpanded
+      ? `
+        <div class="item-photos-panel">
+          ${photosThumbHtml}
+          <button class="add-photo-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            <span>${hasPhotos ? '继续拍照' : '现场拍照留痕'}</span>
+          </button>
+
+          ${
+            hasPhotos
+              ? `
+            <button class="icon-btn copy-photo-data-btn" title="复制照片凭证信息" style="width:auto; height:32px; padding:0 8px; font-size:0.6875rem;">
+              📋 复制凭证
+            </button>
+          `
+              : ''
+          }
+        </div>
+      `
+      : '';
+
     return `
-      <div class="duty-item-card ${isDone ? 'completed-card' : ''}" data-item-card-id="${item.id}">
+      <div class="duty-item-card ${isDone ? 'completed-card' : ''} ${!isExpanded ? 'is-folded' : ''}" data-item-card-id="${item.id}">
         <!-- 左右双向滑动显露层 (带左侧与右侧提示) -->
         <div class="swipe-backdrop">
           <div class="swipe-hint-left">
@@ -685,16 +728,29 @@ class OxherdApp {
             </div>
             
             <div class="item-info-col">
-              <div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">
-                <div class="item-title-text ${isDone ? 'striked' : ''}">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; width:100%; min-width:0;">
+                <div class="item-title-text ${isDone ? 'striked' : ''}" style="flex:1; min-width:0; word-break:break-word;">
                   ${item.title}
                 </div>
-                <button type="button" class="icon-btn item-edit-btn" style="width:28px; height:28px; border:none; background:transparent; color:var(--text-muted); flex-shrink:0;" title="编辑条目">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                  </svg>
-                </button>
+                <div style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+                  ${
+                    canFold
+                      ? `
+                    <button type="button" class="icon-btn item-fold-btn" style="width:28px; height:28px; border:none; background:transparent; color:var(--text-muted); flex-shrink:0;" title="${isExpanded ? '收起拍照与细项' : '展开拍照留痕与细项'}">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transform:${isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}; transition:transform 200ms ease;">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                      </svg>
+                    </button>
+                  `
+                      : ''
+                  }
+                  <button type="button" class="icon-btn item-edit-btn" style="width:28px; height:28px; border:none; background:transparent; color:var(--text-muted); flex-shrink:0;" title="编辑条目">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               <!-- 状态元数据 -->
@@ -734,7 +790,7 @@ class OxherdApp {
                 }
 
                 ${
-                  !item.requirePhoto && item.autoFold
+                  item.autoFold !== false
                     ? `
                   <span style="font-size:0.6875rem; color:var(--text-sub); border:1px solid var(--border-color); padding:1px 5px; border-radius:4px;">自动折叠</span>
                 `
@@ -743,10 +799,10 @@ class OxherdApp {
               </div>
 
               ${
-                subCount > 0
+                canFold
                   ? `
                 <button class="subitems-toggle-btn">
-                  <span>${item.isExpanded ? '▾ 收起细项' : '▸ 展开核查细项'} (${subDoneCount}/${subCount}) ${isAutoFolded ? '· 已自动折叠' : ''}</span>
+                  <span>${isExpanded ? '▾ 收起拍照留痕与细项' : '▸ 展开拍照留痕与细项'} ${hasPhotos ? `(📷 ${item.photos.length}张照片)` : (item.requirePhoto ? '(需拍照)' : '')} ${subCount > 0 ? `(${subDoneCount}/${subCount}细项)` : ''} ${isAutoFolded ? '· 已自动折叠' : ''}</span>
                 </button>
               `
                   : ''
@@ -754,26 +810,7 @@ class OxherdApp {
 
               ${subItemsHtml}
 
-              <div class="item-photos-panel">
-                ${photosThumbHtml}
-                <button class="add-photo-btn">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                    <circle cx="12" cy="13" r="4"></circle>
-                  </svg>
-                  <span>${hasPhotos ? '继续拍照' : '现场拍照留痕'}</span>
-                </button>
-
-                ${
-                  hasPhotos
-                    ? `
-                  <button class="icon-btn copy-photo-data-btn" title="复制照片凭证信息" style="width:auto; height:32px; padding:0 8px; font-size:0.6875rem;">
-                    📋 复制凭证
-                  </button>
-                `
-                    : ''
-                }
-              </div>
+              ${photosPanelHtml}
             </div>
           </div>
         </div>

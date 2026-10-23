@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { App } from '@capacitor/app';
 
 export interface OxherdNativePlugin {
   isBatteryOptimizationIgnored(): Promise<{ ignored: boolean }>;
@@ -25,6 +26,8 @@ export interface OxherdNativePlugin {
   saveConfigFile(options: { fileName: string; content: string }): Promise<{ success: boolean; path: string }>;
   shareConfigFile(options: { fileName: string; content: string }): Promise<void>;
   setStatusBarTheme(options: { isLight: boolean }): Promise<void>;
+  backupData(options: { key: string; value: string }): Promise<void>;
+  restoreData(options: { key: string }): Promise<{ value: string | null }>;
 }
 
 const OxherdNative = registerPlugin<OxherdNativePlugin>('OxherdNative');
@@ -32,6 +35,25 @@ const OxherdNative = registerPlugin<OxherdNativePlugin>('OxherdNative');
 export class NativeBridgeService {
   static isNative(): boolean {
     return Capacitor.isNativePlatform();
+  }
+
+  /**
+   * 注册 Android 原生返回键 / 全面屏侧滑返回监听
+   * @param onBack 返回 true 表示已消费事件（如关闭了弹窗），返回 false 表示未处理将最小化应用
+   */
+  static setupBackButton(onBack: () => boolean): void {
+    if (this.isNative()) {
+      try {
+        App.addListener('backButton', () => {
+          const handled = onBack();
+          if (!handled) {
+            App.minimizeApp();
+          }
+        });
+      } catch (e) {
+        console.warn('注册原生 backButton 监听失败', e);
+      }
+    }
   }
 
   static async isBatteryOptimizationIgnored(): Promise<boolean> {
@@ -174,6 +196,30 @@ export class NativeBridgeService {
 
     // 无法唤起系统分享面板时，直接下载保存文件
     return await this.saveConfigFile(fileName, content);
+  }
+
+  /**
+   * 原生金库数据备份（防止更新 APK 或清理 WebView 缓存导致数据丢失）
+   */
+  static async backupData(key: string, value: string): Promise<void> {
+    if (this.isNative()) {
+      try {
+        await OxherdNative.backupData({ key, value });
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * 原生金库数据还原
+   */
+  static async restoreData(key: string): Promise<string | null> {
+    if (this.isNative()) {
+      try {
+        const res = await OxherdNative.restoreData({ key });
+        return res.value || null;
+      } catch (e) {}
+    }
+    return null;
   }
 
   /**

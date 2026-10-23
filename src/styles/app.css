@@ -111,6 +111,10 @@ body {
   background: rgba(255, 255, 255, 0.9);
   border-bottom: 1px solid var(--border-color);
   padding: calc(10px + var(--safe-top)) 16px 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   transition: all var(--dur-card-in) var(--ease-quint);
 }
 [data-theme="dark"] .app-header {
@@ -122,25 +126,37 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
 }
 
 .header-task-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .task-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .task-title-text {
-  font-size: 1.125rem;
+  font-size: 1.0625rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .task-progress-mini-stats {
@@ -179,6 +195,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .icon-btn {
@@ -329,6 +346,35 @@ body {
 }
 [data-theme="dark"] .duty-item-card.completed-card {
   border-color: rgba(255, 255, 255, 0.04);
+}
+
+.duty-item-card.is-folded .item-content-wrapper {
+  padding: 9px 13px;
+}
+.duty-item-card.is-folded .subitems-list,
+.duty-item-card.is-folded .item-photos-panel {
+  display: none !important;
+}
+
+.subitems-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-top: 8px;
+  transition: all 180ms ease;
+  user-select: none;
+}
+.subitems-toggle-btn:active {
+  transform: scale(0.97);
+  background: var(--border-color);
 }
 
 /* 左右双向滑动底衬与 1:1 状态显露层 */
@@ -706,7 +752,9 @@ body {
   left: 0;
   right: 0;
   max-width: 520px;
+  width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
   padding: 10px 16px calc(14px + var(--safe-bottom));
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(20px);
@@ -717,6 +765,7 @@ body {
   gap: 8px;
   z-index: 50;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
 }
 [data-theme="dark"] .bottom-dock {
   background: rgba(9, 13, 22, 0.94);
@@ -766,6 +815,8 @@ body {
   justify-content: center;
   gap: 6px;
   cursor: pointer;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .hold-fill {
@@ -785,7 +836,12 @@ body {
   z-index: 2;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 模态抽屉与弹窗 ────────────────────────────────────────── */
@@ -801,7 +857,7 @@ body {
   justify-content: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-dialog-in) var(--ease-soft);
+  transition: opacity 300ms var(--ease-soft), background-color 200ms ease;
 }
 .modal-overlay.open {
   opacity: 1;
@@ -819,13 +875,14 @@ body {
   max-height: 88dvh;
   display: flex;
   flex-direction: column;
-  transform: translateY(100%);
-  transition: transform var(--dur-dialog-in) var(--ease-ios);
+  transform: translate3d(0, 100%, 0);
+  transition: transform 380ms cubic-bezier(0.2, 0.9, 0.3, 1);
   overflow: hidden;
   padding-bottom: var(--safe-bottom);
+  will-change: transform;
 }
 .modal-overlay.open .sheet-card {
-  transform: translateY(0);
+  transform: translate3d(0, 0, 0);
 }
 
 .sheet-header {

@@ -310,4 +310,31 @@ public class OxherdPlugin extends Plugin {
         }
         call.resolve();
     }
+
+    /**
+     * 原生持久化金库备份：防止应用升级、系统清理 WebView 时数据意外丢失
+     */
+    @PluginMethod
+    public void backupData(PluginCall call) {
+        String key = call.getString("key", "");
+        String value = call.getString("value", "");
+        if (key != null && !key.isEmpty()) {
+            SharedPreferences sp = getContext().getSharedPreferences("oxherd_native_persistent_vault", Context.MODE_PRIVATE);
+            sp.edit().putString(key, value).apply();
+        }
+        call.resolve();
+    }
+
+    /**
+     * 原生持久化金库还原
+     */
+    @PluginMethod
+    public void restoreData(PluginCall call) {
+        String key = call.getString("key", "");
+        SharedPreferences sp = getContext().getSharedPreferences("oxherd_native_persistent_vault", Context.MODE_PRIVATE);
+        String value = sp.getString(key, null);
+        JSObject ret = new JSObject();
+        ret.put("value", value);
+        call.resolve(ret);
+    }
 }

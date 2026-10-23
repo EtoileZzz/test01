@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { NativeBridgeService } from '../services/nativeBridge';
 import type { DutyTask, DutyTemplate, UserSettings, DutyArchive, DutyPost, DutyItem, DutySubItem } from '../models/types';
 
 const STORAGE_KEYS = {
@@ -7,6 +8,13 @@ const STORAGE_KEYS = {
   CURRENT_TASK_ID: 'oxherd_current_task_id_v3',
   TEMPLATES: 'oxherd_templates_v3',
   ARCHIVES: 'oxherd_archives_v3'
+};
+
+const LEGACY_STORAGE_KEYS = {
+  TASKS: ['oxherd_tasks_v3', 'oxherd_tasks_v2', 'oxherd_tasks_v1', 'oxherd_tasks'],
+  SETTINGS: ['oxherd_user_settings_v3', 'oxherd_user_settings_v2', 'oxherd_user_settings_v1', 'oxherd_user_settings'],
+  CURRENT_TASK_ID: ['oxherd_current_task_id_v3', 'oxherd_current_task_id_v2', 'oxherd_current_task_id_v1', 'oxherd_current_task_id'],
+  ARCHIVES: ['oxherd_archives_v3', 'oxherd_archives_v2', 'oxherd_archives_v1', 'oxherd_archives']
 };
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -31,9 +39,76 @@ export interface ConfigImportStats {
 }
 
 export class DutyStorage {
+  /**
+   * 应用启动时初始化并执行多版本兼容迁移与原生金库数据还原
+   * 彻底解决应用更新后数据丢失问题
+   */
+  static async init(): Promise<void> {
+    // 1. 迁移旧版 LocalStorage Key 数据
+    this.migrateLegacyKeys();
+
+    // 2. 如果 LocalStorage 为空（如更新 APK 导致 WebView 缓存被重置），从原生 SharedPreferences 金库恢复
+    if (this.getTasks().length === 0) {
+      try {
+        const nativeTasks = await NativeBridgeService.restoreData('oxherd_tasks');
+        if (nativeTasks) {
+          const parsed = JSON.parse(nativeTasks);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.TASKS, nativeTasks);
+            console.log('✅ 已成功从 Android 原生持久化金库恢复历史任务！');
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
+      try {
+        const nativeSettings = await NativeBridgeService.restoreData('oxherd_settings');
+        if (nativeSettings) {
+          localStorage.setItem(STORAGE_KEYS.SETTINGS, nativeSettings);
+        }
+      } catch (e) {}
+    }
+  }
+
+  static migrateLegacyKeys(): void {
+    try {
+      if (!localStorage.getItem(STORAGE_KEYS.TASKS)) {
+        for (const k of LEGACY_STORAGE_KEYS.TASKS) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            localStorage.setItem(STORAGE_KEYS.TASKS, val);
+            break;
+          }
+        }
+      }
+
+      if (!localStorage.getItem(STORAGE_KEYS.SETTINGS)) {
+        for (const k of LEGACY_STORAGE_KEYS.SETTINGS) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, val);
+            break;
+          }
+        }
+      }
+
+      if (!localStorage.getItem(STORAGE_KEYS.CURRENT_TASK_ID)) {
+        for (const k of LEGACY_STORAGE_KEYS.CURRENT_TASK_ID) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            localStorage.setItem(STORAGE_KEYS.CURRENT_TASK_ID, val);
+            break;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   // ── 用户设置 ──────────────────────────────────────────────
   static getSettings(): UserSettings {
     try {
+      this.migrateLegacyKeys();
       const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (raw) {
         return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
@@ -47,13 +122,17 @@ export class DutyStorage {
   static saveSettings(settings: Partial<UserSettings>): UserSettings {
     const current = this.getSettings();
     const updated = { ...current, ...settings };
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+    const jsonStr = JSON.stringify(updated);
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, jsonStr);
+    // 同步到 Android 原生持久化金库（更新安装绝不丢失）
+    NativeBridgeService.backupData('oxherd_settings', jsonStr);
     return updated;
   }
 
   // ── 任务管理（初始空白纯净态，无任何硬编码预设） ─────────────
   static getTasks(): DutyTask[] {
     try {
+      this.migrateLegacyKeys();
       const raw = localStorage.getItem(STORAGE_KEYS.TASKS);
       if (raw) return JSON.parse(raw);
     } catch (e) {}
@@ -61,6 +140,7 @@ export class DutyStorage {
   }
 
   static getCurrentTaskId(): string | null {
+    this.migrateLegacyKeys();
     return localStorage.getItem(STORAGE_KEYS.CURRENT_TASK_ID);
   }
 
@@ -95,7 +175,10 @@ export class DutyStorage {
     } else {
       tasks.unshift(task);
     }
-    localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+    const tasksJson = JSON.stringify(tasks);
+    localStorage.setItem(STORAGE_KEYS.TASKS, tasksJson);
+    // 关键：同步备份至 Android 原生 SharedPreferences 金库（APK 更新不丢数据）
+    NativeBridgeService.backupData('oxherd_tasks', tasksJson);
   }
 
   /**
@@ -203,7 +286,7 @@ export class DutyStorage {
             startTime: item.startTime || '',
             endTime: item.endTime || '',
             requirePhoto: !!item.requirePhoto,
-            autoFold: !item.requirePhoto && !!item.autoFold,
+            autoFold: item.autoFold !== undefined ? !!item.autoFold : true,
             subItems: (item.subItems || []).map(s => s.title)
           }))
       }))
@@ -297,7 +380,8 @@ export class DutyStorage {
           isCompleted: false,
           completedAt: null,
           subItems,
-          isExpanded: false
+          autoFold: it.autoFold !== undefined ? !!it.autoFold : true,
+          isExpanded: true
         });
       });
     });
@@ -439,7 +523,8 @@ export class DutyStorage {
         isCompleted: false,
         completedAt: null,
         photos: [], // 照片已打包归档至 ZIP，新班次清空
-        isExpanded: it.autoFold ? false : true, // 若开启自动折叠则默认收起
+        autoFold: it.autoFold !== undefined ? !!it.autoFold : true, // 完美保留完成后自动折叠配置，默认开启
+        isExpanded: true, // 新班次就绪初始展开
         subItems: (it.subItems || []).map((s, sIdx) => ({
           ...s,
           id: `sub_${newItemId}_${sIdx}`,
@@ -470,9 +555,9 @@ export class DutyStorage {
   static toggleItemAutoFold(task: DutyTask, itemId: string): boolean {
     const item = task.items.find(i => i.id === itemId);
     if (!item) return false;
-    item.autoFold = !item.autoFold;
+    item.autoFold = item.autoFold === undefined ? false : !item.autoFold;
     this.saveTask(task);
-    return true;
+    return !!item.autoFold;
   }
 
   static getArchives(): DutyArchive[] {
