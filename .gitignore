@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.apk
+oxherd-*.zip
+src.zip
+
+# Android build & local
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.idea/
+.gradle/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

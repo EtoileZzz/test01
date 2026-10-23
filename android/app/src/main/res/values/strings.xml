@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">oxherd</string>
+    <string name="title_activity_main">oxherd</string>
+    <string name="package_name">com.oxherd.app</string>
+    <string name="custom_url_scheme">com.oxherd.app</string>
+</resources>

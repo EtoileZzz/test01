@@ -1,0 +1,98 @@
+/**
+ * Fluid Motion Tokens (流体物理动效设计令牌)
+ * 纯动效物理曲线、时长基准、光效与交互变量规范
+ */
+
+:root {
+  /* 动效全局速度倍率 (默认 1.0) */
+  --motion-scale: 1;
+
+  /* 基础缓动曲线 (严格按非线性物理模型定义) */
+  --ease-quint: cubic-bezier(.18, 1, .28, 1);
+  --ease-expo: cubic-bezier(.16, 1, .30, 1);
+  --ease-soft: cubic-bezier(.40, 0, .20, 1);
+  --ease-emphasized: cubic-bezier(.05, .70, .10, 1);
+  --ease-ios: cubic-bezier(.32, .72, 0, 1);
+  --ease-snappy: cubic-bezier(.20, .90, .10, 1);
+  --ease-spring: cubic-bezier(.34, 1.42, .52, 1);
+  --ease-back: cubic-bezier(.28, 1.30, .46, 1);
+  --ease-gentle: cubic-bezier(.25, .80, .35, 1);
+  --ease-tile: cubic-bezier(.20, .80, .20, 1);
+  --ease-quart-out: cubic-bezier(.17, .84, .44, 1);
+  --ease-expo-in: cubic-bezier(.70, 0, .84, 0);
+  --ease-overshoot: cubic-bezier(.22, 1.35, .36, 1);
+
+  /* 语义化曲线别名 */
+  --ease-cubic: var(--ease-quint);
+  --ease-smooth: cubic-bezier(.22, .61, .36, 1);
+  --ease-fade-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-enter: var(--ease-cubic);
+  --ease-exit: var(--ease-fade-out);
+
+  /* 阶梯时长令牌 */
+  --dur-press-in: calc(90ms * var(--motion-scale));
+  --dur-press-out: calc(260ms * var(--motion-scale));
+  --dur-text-out: calc(120ms * var(--motion-scale));
+  --dur-text-in: calc(220ms * var(--motion-scale));
+  --dur-list-item: calc(180ms * var(--motion-scale));
+  --dur-card-in: calc(320ms * var(--motion-scale));
+  --dur-zone: calc(340ms * var(--motion-scale));
+  --dur-pill: calc(360ms * var(--motion-scale));
+  --dur-ripple: calc(380ms * var(--motion-scale));
+  --dur-dialog-in: calc(460ms * var(--motion-scale));
+  --dur-dialog-out: calc(320ms * var(--motion-scale));
+  --dur-block: calc(500ms * var(--motion-scale));
+  --dur-glow: calc(500ms * var(--motion-scale));
+
+  /* 错峰延迟步长 */
+  --stagger-list: calc(30ms * var(--motion-scale));
+  --stagger-column: calc(34ms * var(--motion-scale));
+  --stagger-modal: calc(40ms * var(--motion-scale));
+  --stagger-view: calc(60ms * var(--motion-scale));
+
+  /* 交互高光参数 */
+  --glow-peak-opacity: 0.30;
+  --glow-peak-offset: 0.12;
+}
+
+/* 按钮点击瞬时均匀高光图层 */
+.btn-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 10;
+}
+
+/* 胶囊滑块基础样式 */
+.seg-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  will-change: transform, width, height;
+}
+
+/* 长按蓄力确认进度层 */
+.hold-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0%;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+/* 全屏主题切换墨滴层 */
+.theme-spread {
+  position: fixed;
+  pointer-events: none;
+  z-index: 99999;
+  border-radius: 50%;
+  will-change: transform, opacity;
+}

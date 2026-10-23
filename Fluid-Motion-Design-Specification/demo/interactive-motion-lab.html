@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>流体物理动效实验室 · 交互实操台</title>
+  <link rel="stylesheet" href="../standalone-engine/motion-tokens.css">
+  <style>
+    :root {
+      --bg-base: #0E1116;
+      --bg-surface: #171B22;
+      --bg-card: rgba(255, 255, 255, 0.05);
+      --border-subtle: rgba(255, 255, 255, 0.12);
+      --text-main: #F0F6FC;
+      --text-muted: #8B949E;
+      --accent: #5B8DEF;
+      --accent-rgb: 91, 141, 239;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    [data-theme="light"] {
+      --bg-base: #F4F6F9;
+      --bg-surface: #FFFFFF;
+      --bg-card: rgba(0, 0, 0, 0.03);
+      --border-subtle: rgba(0, 0, 0, 0.08);
+      --text-main: #1F2328;
+      --text-muted: #656D76;
+      --accent: #2A6CEB;
+      --accent-rgb: 42, 108, 235;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 24px;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .title-group h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+    .title-group p { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+
+    .control-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    select, input[type="range"] {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .btn {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      color: var(--text-main);
+      cursor: pointer;
+      user-select: none;
+      overflow: hidden;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn.primary { background: var(--accent); color: #FFF; border-color: transparent; }
+
+    /* 实验室展示区 */
+    .lab-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .lab-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .lab-card h2 { font-size: 16px; font-weight: 600; }
+    .lab-card p.desc { font-size: 13px; color: var(--text-muted); }
+
+    /* 1. 容器变形实验台 */
+    .zone-viewport {
+      position: relative;
+      width: 100%;
+      height: 220px;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: var(--radius-md);
+      border: 1px dashed var(--border-subtle);
+      overflow: hidden;
+    }
+
+    .test-zone {
+      position: absolute;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.2s;
+    }
+    .test-zone:hover { border-color: var(--accent); }
+
+    .test-zone .zone-glass {
+      position: absolute;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      pointer-events: none;
+    }
+
+    .test-zone .zone-inner {
+      width: 100%;
+      height: 100%;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .test-zone h4 { font-size: 14px; font-weight: 600; color: var(--accent); }
+    .test-zone .info-preview { font-size: 12px; color: var(--text-muted); }
+
+    /* 2. 分段滑块展示 */
+    .segmented-control {
+      position: relative;
+      display: flex;
+      background: rgba(0, 0, 0, 0.1);
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .seg-item {
+      flex: 1;
+      text-align: center;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      z-index: 2;
+      user-select: none;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+    .seg-item.active { color: var(--text-main); }
+    .seg-pill {
+      background: var(--bg-surface);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      border-radius: 6px;
+    }
+
+    /* 3. 长按确认按钮 */
+    .hold-confirm-btn {
+      position: relative;
+      width: 100%;
+      padding: 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      color: #EF4444;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      overflow: hidden;
+      user-select: none;
+      text-align: center;
+    }
+    .hold-confirm-btn .hold-fill {
+      background: rgba(239, 68, 68, 0.3);
+    }
+
+    /* 4. 模态弹窗系统 */
+    .modal-root {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      visibility: hidden;
+    }
+    .modal-root.open { pointer-events: auto; visibility: visible; }
+
+    .modal-scrim {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .modal-card {
+      position: relative;
+      width: 90%;
+      max-width: 440px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.3);
+      z-index: 2;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; }
+    .modal-close { cursor: pointer; font-size: 18px; color: var(--text-muted); background: none; border: none; }
+  </style>
+</head>
+<body data-theme="dark">
+  <div class="container">
+    <header>
+      <div class="title-group">
+        <h1>流体物理动效实验室</h1>
+        <p>纯动效体系独立复现与物理交互实操台 (WAAPI 驱动)</p>
+      </div>
+      <div class="control-bar">
+        <div class="control-item">
+          <label>流畅模式:</label>
+          <select id="perfSelect">
+            <option value="full">关闭 (完整动效 full)</option>
+            <option value="lite">标准 (去除滤镜 lite)</option>
+            <option value="min">深度 (去3D/零延 min)</option>
+          </select>
+        </div>
+        <div class="control-item">
+          <label>速度倍率:</label>
+          <input type="range" id="speedRange" min="0.2" max="2.0" step="0.1" value="1.0">
+          <span id="speedVal">1.0x</span>
+        </div>
+        <button class="btn" id="themeBtn">🌓 切换主题</button>
+      </div>
+    </header>
+
+    <div class="lab-grid">
+      <!-- 实验 1: 容器几何补间与内容冻结 -->
+      <div class="lab-card" style="grid-column: 1 / -1;">
+        <h2>1. 容器真实几何补间与“内容冻结” (Freeze-Inner Morphing)</h2>
+        <p class="desc">点击任意色块放大聚焦，观察栏框尺寸变化时文字绝无拉伸变形、毛玻璃并集冻结零卡顿。</p>
+        <div class="zone-viewport" id="zoneHost">
+          <div class="test-zone" id="zoneA" style="left: 10px; top: 10px; width: 330px; height: 200px;">
+            <div class="zone-glass"></div>
+            <div class="zone-inner">
+              <h4>主内容区 (Zone A)</h4>
+              <p class="info-preview">多列网格 · 图表矩阵 · 点击聚焦</p>
+              <div style="font-size: 11px; color: var(--text-muted);">文字在动画期间被完全钉死，避免拉伸！</div>
+            </div>
+          </div>
+          <div class="test-zone" id="zoneB" style="left: 350px; top: 10px; width: 330px; height: 200px;">
+            <div class="zone-glass"></div>
+            <div class="zone-inner">
+              <h4>信息面板 (Zone B)</h4>
+              <p class="info-preview">时间轴与动态条目</p>
+              <div style="font-size: 11px; color: var(--text-muted);">点击此卡片体验 FLIP 式打断接力。</div>
+            </div>
+          </div>
+          <div class="test-zone" id="zoneC" style="left: 690px; top: 10px; width: 330px; height: 200px;">
+            <div class="zone-glass"></div>
+            <div class="zone-inner">
+              <h4>状态详情 (Zone C)</h4>
+              <p class="info-preview">焦点信息大格 · 元数据呈现</p>
+              <div style="font-size: 11px; color: var(--text-muted);">双列响应式流自适应。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 实验 2: 3D 铰链翻转与模态弹窗 -->
+      <div class="lab-card">
+        <h2>2. 3D 触控锚点铰链弹窗 (Tile Flip Modal)</h2>
+        <p class="desc">点击按钮的左半边或右半边，观察弹窗以触控侧边缘为 3D 轴心向内翻入。</p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <button class="btn primary" id="openModalLeftBtn">👈 点左侧触发</button>
+          <button class="btn primary" id="openModalRightBtn">👉 点右侧触发</button>
+        </div>
+      </div>
+
+      <!-- 实验 3: 微交互与高光闪烁 -->
+      <div class="lab-card">
+        <h2>3. 实心均匀高光微交互 (Uniform Flash)</h2>
+        <p class="desc">92% 白 + 8% 主题色混合高光，0.30 峰值，500ms 快速衰减。</p>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <button class="btn" id="flashDemoBtn1">点击快速高光</button>
+          <button class="btn primary" id="flashDemoBtn2">主色高光</button>
+        </div>
+      </div>
+
+      <!-- 实验 4: 连续滑块状态机 -->
+      <div class="lab-card">
+        <h2>4. 连续胶囊滑块状态机 (Continuous Pill)</h2>
+        <p class="desc">严格基于 offset 布局树，杜绝 3D 透视缩放畸变，360ms expo 强缓出。</p>
+        <div class="segmented-control" id="segDemo">
+          <div class="seg-item active" data-val="0">概览视图</div>
+          <div class="seg-item" data-val="1">分析面板</div>
+          <div class="seg-item" data-val="2">指标监控</div>
+        </div>
+      </div>
+
+      <!-- 实验 5: 危险长按蓄力 -->
+      <div class="lab-card">
+        <h2>5. 危险操作长按确认 (Danger Hold)</h2>
+        <p class="desc">按住 2 秒充满执行，中途松开 160ms 物理弹性回缩防误触。</p>
+        <button class="hold-confirm-btn" id="holdBtn">
+          <span class="hold-fill"></span>
+          <span style="position: relative; z-index: 2;">长按 2 秒确认敏感操作</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态弹窗挂载根节点 -->
+  <div class="modal-root" id="modalRoot">
+    <div class="modal-scrim" id="modalScrim"></div>
+    <div class="modal-card" id="modalCard">
+      <div class="modal-head">
+        <h3 style="font-size: 18px; font-weight: 600;">条目详情 · 信息面板</h3>
+        <button class="modal-close" id="modalCloseBtn">✕</button>
+      </div>
+      <div class="modal-body" style="font-size: 14px; color: var(--text-muted); display: flex; flex-direction: column; gap: 8px;">
+        <p>分类：核心指标分析</p>
+        <p>编号：METRIC-8042</p>
+        <p>采样周期：实时流处理 (100ms)</p>
+        <p>子组件带 40ms 错峰拼合微动效。</p>
+      </div>
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn" id="modalDismissBtn">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../standalone-engine/motion-engine.js"></script>
+  <script src="../standalone-engine/motion-components.js"></script>
+  <script>
+    var M = window.FluidMotion || window.ARMotion;
+    var MC = window.FluidMotionComponents || window.ARMotionComponents;
+
+    var lastPointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    document.addEventListener('pointerdown', function (e) {
+      lastPointer.x = e.clientX;
+      lastPointer.y = e.clientY;
+      var btn = e.target.closest('.btn');
+      if (btn) MC.flashButton(btn, getComputedStyle(document.body).getPropertyValue('--accent').trim());
+    }, true);
+
+    // 控制台事件
+    document.getElementById('perfSelect').addEventListener('change', function (e) {
+      M.setPerfLevel(e.target.value);
+    });
+
+    document.getElementById('speedRange').addEventListener('input', function (e) {
+      M.setSpeedMultiplier(e.target.value);
+      document.getElementById('speedVal').textContent = parseFloat(e.target.value).toFixed(1) + 'x';
+    });
+
+    // 主题切换墨滴扩散
+    document.getElementById('themeBtn').addEventListener('click', function (e) {
+      var isDark = document.body.getAttribute('data-theme') === 'dark';
+      var targetDark = !isDark;
+      MC.playThemeSwitchSpread(targetDark, targetDark ? '#0E1116' : '#F4F6F9', lastPointer, function () {
+        document.body.setAttribute('data-theme', targetDark ? 'dark' : 'light');
+      });
+    });
+
+    // 容器变形
+    var zones = {
+      zoneA: { x: 10, y: 10, w: 330, h: 200 },
+      zoneB: { x: 350, y: 10, w: 330, h: 200 },
+      zoneC: { x: 690, y: 10, w: 330, h: 200 }
+    };
+    var expandedZone = null;
+
+    function applyMorph(targetKey) {
+      var isCollapse = (expandedZone === targetKey);
+      expandedZone = isCollapse ? null : targetKey;
+
+      var targets = {};
+      if (!expandedZone) {
+        targets.zoneA = { x: 10, y: 10, w: 330, h: 200 };
+        targets.zoneB = { x: 350, y: 10, w: 330, h: 200 };
+        targets.zoneC = { x: 690, y: 10, w: 330, h: 200 };
+      } else if (expandedZone === 'zoneA') {
+        targets.zoneA = { x: 10, y: 10, w: 680, h: 200 };
+        targets.zoneB = { x: 700, y: 10, w: 150, h: 95 };
+        targets.zoneC = { x: 700, y: 115, w: 150, h: 95 };
+      } else if (expandedZone === 'zoneB') {
+        targets.zoneA = { x: 10, y: 10, w: 150, h: 200 };
+        targets.zoneB = { x: 170, y: 10, w: 680, h: 200 };
+        targets.zoneC = { x: 860, y: 10, w: 160, h: 200 };
+      } else if (expandedZone === 'zoneC') {
+        targets.zoneA = { x: 10, y: 10, w: 150, h: 95 };
+        targets.zoneB = { x: 10, y: 115, w: 150, h: 95 };
+        targets.zoneC = { x: 170, y: 10, w: 850, h: 200 };
+      }
+
+      ['zoneA', 'zoneB', 'zoneC'].forEach(function (k) {
+        var el = document.getElementById(k);
+        MC.morphContainer(el, zones[k], targets[k], { collapse: isCollapse });
+        zones[k] = targets[k];
+      });
+    }
+
+    document.getElementById('zoneA').addEventListener('click', function () { applyMorph('zoneA'); });
+    document.getElementById('zoneB').addEventListener('click', function () { applyMorph('zoneB'); });
+    document.getElementById('zoneC').addEventListener('click', function () { applyMorph('zoneC'); });
+
+    // 模态弹窗
+    var mRoot = document.getElementById('modalRoot');
+    var mCard = document.getElementById('modalCard');
+    var mScrim = document.getElementById('modalScrim');
+
+    function openModalWithPointer(pt) {
+      MC.playModal(mRoot, mCard, mScrim, 'in', pt);
+    }
+    function closeModal() {
+      MC.playModal(mRoot, mCard, mScrim, 'out', lastPointer);
+    }
+
+    document.getElementById('openModalLeftBtn').addEventListener('click', function (e) {
+      var r = e.target.getBoundingClientRect();
+      openModalWithPointer({ x: r.left + 10, y: r.top + r.height / 2 });
+    });
+    document.getElementById('openModalRightBtn').addEventListener('click', function (e) {
+      var r = e.target.getBoundingClientRect();
+      openModalWithPointer({ x: r.right - 10, y: r.top + r.height / 2 });
+    });
+    document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+    document.getElementById('modalDismissBtn').addEventListener('click', closeModal);
+    mScrim.addEventListener('click', closeModal);
+
+    // 分段滑块
+    var seg = document.getElementById('segDemo');
+    MC.syncSegPill(seg, false);
+    seg.addEventListener('click', function (e) {
+      var item = e.target.closest('.seg-item');
+      if (!item) return;
+      seg.querySelectorAll('.seg-item').forEach(function (i) { i.classList.remove('active'); });
+      item.classList.add('active');
+      MC.syncSegPill(seg, true);
+    });
+
+    // 长按确认
+    MC.bindHoldToConfirm(document.getElementById('holdBtn'), 2000, function () {
+      alert('已长按 2 秒确认敏感操作！');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 极简纯黑底色 (带轻微倒角) -->
+  <rect width="512" height="512" rx="112" fill="#000000"/>
+  <rect width="504" height="504" x="4" y="4" rx="108" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.15"/>
+
+  <!-- 1. 顶端极简圆环 (吊环) -->
+  <circle cx="256" cy="100" r="30" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- 2. 拱形悬挂提手 -->
+  <path d="M 186, 172 C 186, 102 326, 102 326, 172" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+
+  <!-- 3. 灯顶与排气顶罩 (极简几何切面) -->
+  <circle cx="256" cy="154" r="10" fill="#FFFFFF"/>
+  <path d="M 216, 162 L 296, 162 L 310, 186 L 202, 186 Z" fill="#FFFFFF"/>
+  <ellipse cx="256" cy="186" rx="54" ry="8" fill="#000000"/>
+  
+  <!-- 灯盖大帽檐 -->
+  <path d="M 156, 212 L 356, 212 L 374, 234 L 138, 234 Z" fill="#FFFFFF"/>
+  <rect x="144" y="234" width="224" height="6" rx="3" fill="#000000"/>
+
+  <!-- 4. 玻璃灯体轮廓 (纯净通透线条) -->
+  <path d="M 174, 240 L 338, 240 L 314, 370 L 198, 370 Z" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linejoin="round"/>
+
+  <!-- 5. 核心点睛：纯白极简火苗与负空间内焰 -->
+  <path d="M 256, 258 C 240, 286 232, 304 232, 320 C 232, 336 243, 348 256, 348 C 269, 348 280, 336 280, 320 C 280, 304 272, 286 256, 258 Z" fill="#FFFFFF"/>
+  <!-- 负空间镂空火焰芯 -->
+  <path d="M 256, 286 C 248, 302 244, 312 244, 322 C 244, 330 249, 336 256, 336 C 263, 336 268, 330 268, 322 C 268, 312 264, 302 256, 286 Z" fill="#000000"/>
+
+  <!-- 6. 经典马灯侧向保护弓弧 -->
+  <path d="M 148, 230 C 118, 282 124, 338 184, 384" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+  <path d="M 364, 230 C 394, 282 388, 338 328, 384" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+
+  <!-- 7. 稳固几何底座与基石 -->
+  <path d="M 186, 370 L 326, 370 L 340, 396 L 172, 396 Z" fill="#FFFFFF"/>
+  <rect x="156" y="402" width="200" height="22" rx="11" fill="#FFFFFF"/>
+  <rect x="144" y="424" width="224" height="10" rx="5" fill="#FFFFFF" opacity="0.6"/>
+
+  <!-- 8. 极简光芒微点缀 (四芒星与夜光) -->
+  <path d="M 396, 172 Q 406, 172 406, 162 Q 406, 172 416, 172 Q 406, 172 406, 182 Q 406, 172 396, 172 Z" fill="#FFFFFF"/>
+  <circle cx="106" cy="272" r="5" fill="#FFFFFF"/>
+</svg>
