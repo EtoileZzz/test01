@@ -651,7 +651,7 @@ body {
   margin-left: 4px;
 }
 
-/* 细分子项展示 */
+/* 细分子项展示与手势划除 */
 .subitems-list {
   margin-top: 8px;
   padding-left: 10px;
@@ -662,14 +662,44 @@ body {
   gap: 6px;
 }
 
+.subitem-row-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  touch-action: pan-y;
+}
+
+.subitem-swipe-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--success);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .subitem-row {
+  position: relative;
+  z-index: 1;
+  background: var(--bg-card);
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 0.8125rem;
   color: var(--text-main);
   cursor: pointer;
-  padding: 2px 0;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  user-select: none;
+  -webkit-user-select: none;
 }
 .subitem-checkbox {
   width: 15px;
@@ -686,6 +716,67 @@ body {
   background: var(--success);
   border-color: var(--success);
   color: white;
+}
+
+.subitem-swipe-hint-tag {
+  font-size: 0.625rem;
+  color: var(--text-sub);
+  margin-left: auto;
+  opacity: 0.65;
+  font-weight: 500;
+}
+
+/* 自绘色盘调色器 */
+.theme-palette-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.theme-canvas-container {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+#theme-color-canvas {
+  width: 100%;
+  height: 110px;
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.color-swatch-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 150ms ease, border-color 150ms ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.color-swatch-btn:hover,
+.color-swatch-btn.active {
+  transform: scale(1.18);
+  border-color: var(--text-main);
 }
 
 /* 照片缩略图画廊 */

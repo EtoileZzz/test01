@@ -3,7 +3,7 @@ import { DutyStorage } from './storage/db';
 import { NativeBridgeService } from './services/nativeBridge';
 import { ModalManager } from './components/modals';
 import { ItemModal } from './components/itemModal';
-import { bindCardSwipe } from './gestures/swipeTracker';
+import { bindCardSwipe, bindSubItemSwipe } from './gestures/swipeTracker';
 import type { DutyTask, DutyItem, InspectionPhoto } from './models/types';
 
 interface UndoSnapshot {
@@ -37,6 +37,7 @@ class OxherdApp {
   private initTheme(): void {
     const settings = DutyStorage.getSettings();
     this.applyTheme(settings.theme);
+    this.applyThemeColor(settings.themeColor);
 
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
       const current = DutyStorage.getSettings();
@@ -55,6 +56,24 @@ class OxherdApp {
     }
     document.documentElement.setAttribute('data-theme', resolved);
     NativeBridgeService.syncStatusBarTheme(theme);
+  }
+
+  public applyThemeColor(color?: string): void {
+    if (!color) {
+      document.documentElement.style.removeProperty('--accent');
+      document.documentElement.style.removeProperty('--accent-light');
+      document.documentElement.style.removeProperty('--border-focus');
+      return;
+    }
+    document.documentElement.style.setProperty('--accent', color);
+    document.documentElement.style.setProperty('--border-focus', color);
+    const hex = color.replace('#', '');
+    if (hex.length === 6) {
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      document.documentElement.style.setProperty('--accent-light', `rgba(${r}, ${g}, ${b}, 0.16)`);
+    }
   }
 
   // ── 任务初始化（纯净空白初始态，零硬编码预设） ──────────────────
@@ -588,37 +607,61 @@ class OxherdApp {
         this.render();
       });
 
-      // 点击或划去细分子条目
-      cardEl.querySelectorAll('.subitem-row').forEach(subRow => {
-        subRow.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const subId = subRow.getAttribute('data-sub-id');
-          const sub = item.subItems.find(s => s.id === subId);
-          if (sub) {
-            this.recordUndoSnapshot(item);
-            sub.isCompleted = !sub.isCompleted;
-            sub.completedAt = sub.isCompleted ? new Date().toISOString() : null;
+      // 细分子项交互绑定（支持设置中配置：点击打勾划去 vs 左右手势滑动划去）
+      const isSwipeSub = DutyStorage.getSettings().subItemCompleteMode === 'swipe';
 
-            // 划完所有细项后，主条目自动设置为完成
-            const allSubDone = item.subItems.every(s => s.isCompleted);
-            if (allSubDone && !item.isCompleted) {
-              item.isCompleted = true;
-              item.completedAt = new Date().toISOString();
-              if (item.autoFold !== false) {
-                item.isExpanded = false;
-              }
-              this.showUndoToast(item.title);
-            } else if (!sub.isCompleted && item.isCompleted) {
-              item.isCompleted = false;
-              item.completedAt = null;
-              item.isExpanded = true;
+      cardEl.querySelectorAll('.subitem-row-wrapper').forEach(subWrapper => {
+        const subId = subWrapper.getAttribute('data-sub-id');
+        const sub = item.subItems.find(s => s.id === subId);
+        if (!sub) return;
+
+        const toggleSub = () => {
+          this.recordUndoSnapshot(item);
+          sub.isCompleted = !sub.isCompleted;
+          sub.completedAt = sub.isCompleted ? new Date().toISOString() : null;
+
+          // 划完所有细项后，主条目自动设置为完成
+          const allSubDone = item.subItems.every(s => s.isCompleted);
+          if (allSubDone && !item.isCompleted) {
+            item.isCompleted = true;
+            item.completedAt = new Date().toISOString();
+            if (item.autoFold !== false) {
+              item.isExpanded = false;
             }
-
-            DutyStorage.saveTask(task);
-            NativeBridgeService.triggerLightHaptic();
-            this.render();
+            this.showUndoToast(item.title);
+          } else if (!sub.isCompleted && item.isCompleted) {
+            item.isCompleted = false;
+            item.completedAt = null;
+            item.isExpanded = true;
           }
+
+          DutyStorage.saveTask(task);
+          NativeBridgeService.triggerLightHaptic();
+          this.render();
+        };
+
+        // 点击复选框始终直接完成/撤销
+        const checkbox = subWrapper.querySelector('.subitem-checkbox');
+        checkbox?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleSub();
         });
+
+        if (isSwipeSub && !sub.isCompleted) {
+          // 左右手势滑动划去模式
+          bindSubItemSwipe(subWrapper as HTMLElement, {
+            threshold: 40,
+            onSwipeComplete: () => {
+              toggleSub();
+            }
+          });
+        } else {
+          // 点击整行打勾划除模式
+          subWrapper.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleSub();
+          });
+        }
       });
 
       // 拍照按钮
@@ -721,15 +764,24 @@ class OxherdApp {
 
   // ── 渲染巡检条目卡片 HTML ────────────────────────────────────
   private renderItemCardHtml(item: DutyItem): string {
+    const settings = DutyStorage.getSettings();
     const isDone = item.isCompleted;
-    const isExpanded = item.isExpanded !== false;
-    const isAutoFolded = isDone && item.autoFold !== false && !isExpanded;
+
+    // 全局设置：未完成条目自动折叠以简化排布（排除必须拍照的项目）
+    let isExpanded = item.isExpanded !== false;
+    if (!isDone && settings.autoFoldUncompleted && !item.requirePhoto && item.isExpanded === undefined) {
+      isExpanded = false;
+    }
+
+    const isAutoFolded = (isDone && item.autoFold !== false && !isExpanded) ||
+                         (!isDone && settings.autoFoldUncompleted && !item.requirePhoto && !isExpanded);
     const timeFormatted = item.completedAt ? new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
     const hasPhotos = item.photos && item.photos.length > 0;
     const subCount = item.subItems.length;
     const subDoneCount = item.subItems.filter(s => s.isCompleted).length;
     const isScheduled = item.itemType === 'SCHEDULED';
     const canFold = subCount > 0 || item.requirePhoto || hasPhotos;
+    const isSwipeSub = settings.subItemCompleteMode === 'swipe';
 
     const photosThumbHtml = hasPhotos
       ? item.photos
@@ -751,14 +803,27 @@ class OxherdApp {
           ${item.subItems
             .map(
               sub => `
-              <div class="subitem-row" data-sub-id="${sub.id}">
-                <div class="subitem-checkbox ${sub.isCompleted ? 'checked' : ''}">
-                  ${sub.isCompleted ? '✓' : ''}
+              <div class="subitem-row-wrapper ${sub.isCompleted ? 'is-completed' : ''}" data-sub-id="${sub.id}">
+                ${
+                  isSwipeSub && !sub.isCompleted
+                    ? `
+                  <div class="subitem-swipe-backdrop">
+                    <span>✓ 完成</span>
+                    <span>✓ 完成</span>
+                  </div>
+                `
+                    : ''
+                }
+                <div class="subitem-row ${sub.isCompleted ? 'is-completed' : ''}" data-sub-id="${sub.id}">
+                  <div class="subitem-checkbox ${sub.isCompleted ? 'checked' : ''}">
+                    ${sub.isCompleted ? '✓' : ''}
+                  </div>
+                  <span style="${sub.isCompleted ? 'text-decoration:line-through; color:var(--text-sub);' : ''}">
+                    ${sub.title}
+                  </span>
+                  ${sub.completedAt ? `<span style="font-size:0.6875rem; color:var(--text-sub); margin-left:auto;">${new Date(sub.completedAt).toLocaleTimeString('zh-CN', { hour12: false })}</span>` : ''}
+                  ${isSwipeSub && !sub.isCompleted ? `<span class="subitem-swipe-hint-tag">‹ 滑动划除 ›</span>` : ''}
                 </div>
-                <span style="${sub.isCompleted ? 'text-decoration:line-through; color:var(--text-sub);' : ''}">
-                  ${sub.title}
-                </span>
-                ${sub.completedAt ? `<span style="font-size:0.6875rem; color:var(--text-sub); margin-left:auto;">${new Date(sub.completedAt).toLocaleTimeString('zh-CN', { hour12: false })}</span>` : ''}
               </div>
             `
             )
@@ -885,9 +950,9 @@ class OxherdApp {
                 }
 
                 ${
-                  item.autoFold !== false
+                  isAutoFolded
                     ? `
-                  <span style="font-size:0.6875rem; color:var(--text-sub); border:1px solid var(--border-color); padding:1px 5px; border-radius:4px;">自动折叠</span>
+                  <span style="font-size:0.6875rem; color:var(--text-sub); border:1px solid var(--border-color); padding:1px 5px; border-radius:4px;">${isDone ? '已自动折叠' : '简化已折叠'}</span>
                 `
                     : ''
                 }
@@ -897,7 +962,7 @@ class OxherdApp {
                 canFold
                   ? `
                 <button class="subitems-toggle-btn">
-                  <span>${isExpanded ? '▾ 收起拍照留痕与细项' : '▸ 展开拍照留痕与细项'} ${hasPhotos ? `(📷 ${item.photos.length}张照片)` : (item.requirePhoto ? '(需拍照)' : '')} ${subCount > 0 ? `(${subDoneCount}/${subCount}细项)` : ''} ${isAutoFolded ? '· 已自动折叠' : ''}</span>
+                  <span>${isExpanded ? '▾ 收起细项与拍照' : '▸ 展开细项与拍照'} ${hasPhotos ? `(📷 ${item.photos.length}张照片)` : (item.requirePhoto ? '(需拍照)' : '')} ${subCount > 0 ? `(${subDoneCount}/${subCount}细项)` : ''} ${isAutoFolded ? (isDone ? '· 已自动折叠' : '· 简化已折叠') : ''}</span>
                 </button>
               `
                   : ''

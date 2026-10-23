@@ -1,6 +1,6 @@
 {
   "name": "oxherd",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "oxherd - 移动端流体物理动效值班打卡应用",
   "type": "module",

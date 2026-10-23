@@ -30,7 +30,7 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
   const rightHint = backdropEl?.querySelector('.swipe-hint-right') as HTMLElement;
 
   function onPointerDown(e: PointerEvent) {
-    // 忽略直接点击控件（复选框、折叠按钮、图片缩略图、删除按钮等）
+    // 忽略直接点击控件（复选框、折叠按钮、图片缩略图、删除按钮、细分子项等）
     const target = e.target as HTMLElement;
     if (
       target.closest('.item-checkbox') ||
@@ -39,6 +39,9 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
       target.closest('.add-photo-btn') ||
       target.closest('.item-edit-btn') ||
       target.closest('.subitem-checkbox') ||
+      target.closest('.subitem-row') ||
+      target.closest('.subitem-row-wrapper') ||
+      target.closest('.subitems-list') ||
       target.closest('button') ||
       target.closest('input')
     ) {
@@ -164,5 +167,120 @@ export function bindCardSwipe(cardEl: HTMLElement, options: SwipeOptions): () =>
     cardEl.removeEventListener('pointermove', onPointerMove);
     cardEl.removeEventListener('pointerup', finishSwipe);
     cardEl.removeEventListener('pointercancel', finishSwipe);
+  };
+}
+
+export interface SubItemSwipeOptions {
+  threshold?: number;
+  onSwipeComplete?: () => void;
+}
+
+/**
+ * 细分子条目 1:1 跟手左右双向划除手势追踪器
+ */
+export function bindSubItemSwipe(rowWrapperEl: HTMLElement, options: SubItemSwipeOptions): () => void {
+  const contentEl = (rowWrapperEl.querySelector('.subitem-row') || rowWrapperEl) as HTMLElement;
+  const backdropEl = rowWrapperEl.querySelector('.subitem-swipe-backdrop') as HTMLElement;
+  const threshold = options.threshold || 42;
+
+  let startX = 0;
+  let startY = 0;
+  let currentDx = 0;
+  let isTracking = false;
+  let isHorizontal = false;
+  let hasVibrated = false;
+
+  function onPointerDown(e: PointerEvent) {
+    const target = e.target as HTMLElement;
+    if (target.closest('.subitem-checkbox')) {
+      return;
+    }
+
+    startX = e.clientX;
+    startY = e.clientY;
+    currentDx = 0;
+    isTracking = true;
+    isHorizontal = false;
+    hasVibrated = false;
+    contentEl.style.transition = 'none';
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!isTracking) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (!isHorizontal) {
+      if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy)) {
+        isHorizontal = true;
+        try {
+          rowWrapperEl.setPointerCapture(e.pointerId);
+        } catch (_) {}
+      } else if (Math.abs(dy) > 6) {
+        isTracking = false;
+        return;
+      }
+    }
+
+    if (!isHorizontal) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    currentDx = dx;
+    contentEl.style.transform = `translate3d(${currentDx}px, 0, 0)`;
+
+    if (backdropEl) {
+      const opacity = Math.min(1, Math.abs(currentDx) / threshold);
+      backdropEl.style.opacity = `${opacity}`;
+    }
+
+    if (Math.abs(currentDx) >= threshold && !hasVibrated) {
+      hasVibrated = true;
+      NativeBridgeService.triggerLightHaptic();
+    } else if (Math.abs(currentDx) < threshold && hasVibrated) {
+      hasVibrated = false;
+    }
+  }
+
+  function onPointerUp(e?: PointerEvent) {
+    if (!isTracking) return;
+    isTracking = false;
+
+    if (e && rowWrapperEl.hasPointerCapture(e.pointerId)) {
+      try {
+        rowWrapperEl.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+
+    const absDx = Math.abs(currentDx);
+    if (absDx >= threshold) {
+      NativeBridgeService.triggerLightHaptic();
+      contentEl.style.transition = 'transform 180ms cubic-bezier(.16, 1, .3, 1)';
+      const flyX = currentDx > 0 ? '110%' : '-110%';
+      contentEl.style.transform = `translate3d(${flyX}, 0, 0)`;
+
+      setTimeout(() => {
+        if (options.onSwipeComplete) options.onSwipeComplete();
+        contentEl.style.transition = 'none';
+        contentEl.style.transform = 'translate3d(0, 0, 0)';
+        if (backdropEl) backdropEl.style.opacity = '0';
+      }, 180);
+    } else {
+      contentEl.style.transition = 'transform 200ms cubic-bezier(.18, .9, .3, 1)';
+      contentEl.style.transform = 'translate3d(0, 0, 0)';
+      if (backdropEl) backdropEl.style.opacity = '0';
+    }
+  }
+
+  rowWrapperEl.addEventListener('pointerdown', onPointerDown);
+  rowWrapperEl.addEventListener('pointermove', onPointerMove);
+  rowWrapperEl.addEventListener('pointerup', onPointerUp);
+  rowWrapperEl.addEventListener('pointercancel', onPointerUp);
+
+  return () => {
+    rowWrapperEl.removeEventListener('pointerdown', onPointerDown);
+    rowWrapperEl.removeEventListener('pointermove', onPointerMove);
+    rowWrapperEl.removeEventListener('pointerup', onPointerUp);
+    rowWrapperEl.removeEventListener('pointercancel', onPointerUp);
   };
 }

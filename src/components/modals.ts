@@ -648,9 +648,9 @@ export class ModalManager {
     const vendorInfo = await NativeBridgeService.getVendorInfo();
 
     const contentHtml = `
-      <!-- 外观主题 -->
+      <!-- 外观主题与自绘色盘 -->
       <div class="settings-group">
-        <div class="settings-group-title">🎨 外观主题模式</div>
+        <div class="settings-group-title">🎨 外观主题与主题色定制</div>
         <div class="settings-row">
           <div class="settings-row-label">
             <span class="settings-main-label">深浅色显示</span>
@@ -660,6 +660,42 @@ export class ModalManager {
             <div class="pill-option ${settings.theme === 'light' ? 'active' : ''}" data-val="light">☀️ 浅色</div>
             <div class="pill-option ${settings.theme === 'dark' ? 'active' : ''}" data-val="dark">🌙 深色</div>
             <div class="pill-option ${settings.theme === 'system' ? 'active' : ''}" data-val="system">💻 跟随系统</div>
+          </div>
+        </div>
+
+        <!-- 自绘色盘取色器 -->
+        <div class="theme-palette-box">
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div id="theme-color-preview-circle" style="width:20px; height:20px; border-radius:50%; background:var(--accent); border:2px solid white; box-shadow:0 0 0 1px var(--border-color);"></div>
+              <span style="font-size:0.8125rem; font-weight:700; color:var(--text-main);">自绘全色光谱色盘</span>
+              <span id="theme-color-hex-tag" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--text-muted);">${settings.themeColor || '默认'}</span>
+            </div>
+            <button type="button" class="icon-btn" id="reset-theme-color-btn" style="width:auto; height:26px; padding:0 10px; font-size:0.6875rem;">
+              恢复默认
+            </button>
+          </div>
+          
+          <div class="theme-canvas-container">
+            <canvas id="theme-color-canvas" width="300" height="110"></canvas>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            <span style="font-size:0.6875rem; color:var(--text-muted); font-weight:600;">经典预设推荐：</span>
+            <div class="color-presets-row" id="theme-color-presets">
+              ${[
+                { name: '极光天蓝', hex: '#38BDF8' },
+                { name: '深海湛蓝', hex: '#0284C7' },
+                { name: '翡翠生机', hex: '#10B981' },
+                { name: '赛博青翠', hex: '#06B6D4' },
+                { name: '梦幻星紫', hex: '#8B5CF6' },
+                { name: '珊瑚粉红', hex: '#F43F5E' },
+                { name: '日落落霞', hex: '#F97316' },
+                { name: '高级石墨', hex: '#64748B' }
+              ].map(p => `
+                <button type="button" class="color-swatch-btn ${settings.themeColor === p.hex ? 'active' : ''}" data-hex="${p.hex}" style="background:${p.hex};" title="${p.name} (${p.hex})"></button>
+              `).join('')}
+            </div>
           </div>
         </div>
       </div>
@@ -679,9 +715,38 @@ export class ModalManager {
         </div>
       </div>
 
-      <!-- 细项交互与录入偏好 -->
+      <!-- 巡查排布与细项交互偏好 -->
       <div class="settings-group">
-        <div class="settings-group-title">⌨️ 细分子条目录入偏好</div>
+        <div class="settings-group-title">📋 巡查排布与细项交互偏好</div>
+        
+        <!-- 未完成条目自动折叠 (全局设置，排除必须拍照的项目) -->
+        <div class="settings-row">
+          <div class="settings-row-label">
+            <span class="settings-main-label">未完成条目自动折叠</span>
+            <span class="settings-sub-label">未完成条目默认收起细项以简化排布（必须拍照的项目除外，保持展开）</span>
+          </div>
+          <div class="toggle-switch ${settings.autoFoldUncompleted ? 'on' : ''}" id="toggle-autofold-uncompleted">
+            <div class="toggle-knob"></div>
+          </div>
+        </div>
+
+        <!-- 细分子项完成方式：点击打勾 vs 左右划去 -->
+        <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+          <div class="settings-row-label" style="width:100%;">
+            <span class="settings-main-label">细分子项完成操作方式</span>
+            <span class="settings-sub-label">选择子项核验时的交互手势（点击或跟手左右划去）</span>
+          </div>
+          <div class="select-pills" id="subitem-mode-pills" style="width:100%;">
+            <div class="pill-option ${settings.subItemCompleteMode !== 'swipe' ? 'active' : ''}" data-mode="click" style="flex:1; text-align:center;">
+              👉 点击打勾划去
+            </div>
+            <div class="pill-option ${settings.subItemCompleteMode === 'swipe' ? 'active' : ''}" data-mode="swipe" style="flex:1; text-align:center;">
+              ↔️ 左右划动划去
+            </div>
+          </div>
+        </div>
+
+        <!-- 细项录入空格自动切换 -->
         <div class="settings-row">
           <div class="settings-row-label">
             <span class="settings-main-label">细项录入空格自动切换</span>
@@ -858,6 +923,171 @@ export class ModalManager {
         DutyStorage.saveSettings({ handoverExternalUrl: url });
         NativeBridgeService.triggerLightHaptic();
         alert('值班填报链接已保存！');
+      });
+
+      // 🎨 自绘色盘取色与主题色定制
+      const canvas = card.querySelector('#theme-color-canvas') as HTMLCanvasElement;
+      const hexTag = card.querySelector('#theme-color-hex-tag') as HTMLElement;
+      const previewCircle = card.querySelector('#theme-color-preview-circle') as HTMLElement;
+      const resetColorBtn = card.querySelector('#reset-theme-color-btn') as HTMLElement;
+      const presetBtns = card.querySelectorAll('#theme-color-presets .color-swatch-btn');
+
+      const applyThemeColor = (colorHex: string) => {
+        settings.themeColor = colorHex;
+        DutyStorage.saveSettings({ themeColor: colorHex });
+        if (hexTag) hexTag.textContent = colorHex || '默认';
+        if (previewCircle) previewCircle.style.background = colorHex || 'var(--accent)';
+        presetBtns.forEach(btn => {
+          btn.classList.toggle('active', btn.getAttribute('data-hex') === colorHex);
+        });
+
+        if (colorHex) {
+          document.documentElement.style.setProperty('--accent', colorHex);
+          document.documentElement.style.setProperty('--border-focus', colorHex);
+          const hex = colorHex.replace('#', '');
+          if (hex.length === 6) {
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            document.documentElement.style.setProperty('--accent-light', `rgba(${r}, ${g}, ${b}, 0.16)`);
+          }
+        } else {
+          document.documentElement.style.removeProperty('--accent');
+          document.documentElement.style.removeProperty('--accent-light');
+          document.documentElement.style.removeProperty('--border-focus');
+        }
+        onSettingsChanged();
+      };
+
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const width = canvas.width;
+          const height = canvas.height;
+
+          const drawSpectrum = (markerX?: number, markerY?: number) => {
+            // 水平彩虹光谱
+            const hGrad = ctx.createLinearGradient(0, 0, width, 0);
+            hGrad.addColorStop(0, '#ff0000');
+            hGrad.addColorStop(0.17, '#ffff00');
+            hGrad.addColorStop(0.33, '#00ff00');
+            hGrad.addColorStop(0.50, '#00ffff');
+            hGrad.addColorStop(0.67, '#0000ff');
+            hGrad.addColorStop(0.83, '#ff00ff');
+            hGrad.addColorStop(1, '#ff0000');
+            ctx.fillStyle = hGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // 垂直明度与饱和度渐变
+            const vGrad = ctx.createLinearGradient(0, 0, 0, height);
+            vGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+            vGrad.addColorStop(0.48, 'rgba(255, 255, 255, 0)');
+            vGrad.addColorStop(0.52, 'rgba(0, 0, 0, 0)');
+            vGrad.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
+            ctx.fillStyle = vGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // 绘制当前光标指示器
+            if (markerX !== undefined && markerY !== undefined) {
+              ctx.beginPath();
+              ctx.arc(markerX, markerY, 7, 0, Math.PI * 2);
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 2.5;
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(markerX, markerY, 5, 0, Math.PI * 2);
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = 1.5;
+              ctx.stroke();
+            }
+          };
+
+          drawSpectrum();
+
+          const pickColor = (e: PointerEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            const rawX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+            const rawY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+            const canvasX = Math.round((rawX / rect.width) * width);
+            const canvasY = Math.round((rawY / rect.height) * height);
+
+            drawSpectrum(canvasX, canvasY);
+
+            const pixel = ctx.getImageData(canvasX, canvasY, 1, 1).data;
+            const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(x => x.toString(16).padStart(2, '0')).join('');
+            applyThemeColor(hex);
+          };
+
+          let isPicking = false;
+          canvas.addEventListener('pointerdown', (e) => {
+            isPicking = true;
+            try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+            pickColor(e);
+            NativeBridgeService.triggerLightHaptic();
+          });
+          canvas.addEventListener('pointermove', (e) => {
+            if (isPicking) pickColor(e);
+          });
+          const endPick = (e: PointerEvent) => {
+            if (isPicking) {
+              isPicking = false;
+              try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+            }
+          };
+          canvas.addEventListener('pointerup', endPick);
+          canvas.addEventListener('pointercancel', endPick);
+        }
+      }
+
+      // 预设推荐色
+      presetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const hex = btn.getAttribute('data-hex');
+          if (hex) {
+            applyThemeColor(hex);
+            NativeBridgeService.triggerLightHaptic();
+          }
+        });
+      });
+
+      // 恢复默认主题色
+      resetColorBtn?.addEventListener('click', () => {
+        applyThemeColor('');
+        NativeBridgeService.triggerLightHaptic();
+      });
+
+      // 未完成条目自动折叠开关（排除必须拍照的项目）
+      const toggleAutofoldUncompleted = card.querySelector('#toggle-autofold-uncompleted');
+      toggleAutofoldUncompleted?.addEventListener('click', () => {
+        const nextVal = !settings.autoFoldUncompleted;
+        settings.autoFoldUncompleted = nextVal;
+        DutyStorage.saveSettings({ autoFoldUncompleted: nextVal });
+        toggleAutofoldUncompleted.classList.toggle('on', nextVal);
+        NativeBridgeService.triggerLightHaptic();
+
+        // 立即同步当前未完成条目的折叠状态
+        if (task) {
+          task.items.forEach(item => {
+            if (!item.isCompleted) {
+              item.isExpanded = item.requirePhoto ? true : !nextVal;
+            }
+          });
+          DutyStorage.saveTask(task);
+        }
+        onSettingsChanged();
+      });
+
+      // 细分子项完成方式切换 (点击打勾 vs 左右划去)
+      card.querySelectorAll('#subitem-mode-pills .pill-option').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const mode = pill.getAttribute('data-mode') as 'click' | 'swipe';
+          settings.subItemCompleteMode = mode;
+          DutyStorage.saveSettings({ subItemCompleteMode: mode });
+          card.querySelectorAll('#subitem-mode-pills .pill-option').forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+          NativeBridgeService.triggerLightHaptic();
+          onSettingsChanged();
+        });
       });
 
       // 细分子条目录入空格自动切换开关

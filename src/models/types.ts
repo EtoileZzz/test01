@@ -103,6 +103,9 @@ export interface UserSettings {
   handoverExternalUrl: string; // 预设值班交班外链 (如腾讯文档/飞书/企业微信表单)
   handoverTarget: 'url' | 'wechat' | 'tim' | 'none'; // 协同跳转目标
   subItemSpaceAutoSwitch?: boolean; // 细项录入根据空格自动切换
+  autoFoldUncompleted?: boolean; // 未完成任务自动折叠简化排布（排除必须拍照项）
+  subItemCompleteMode?: 'click' | 'swipe'; // 子项目完成交互模式：点击打勾划去 vs 左右划动划去
+  themeColor?: string; // 自定义主题色十六进制代码 (如 #38BDF8)
 }
 
 export interface DutyArchive {
@@ -119,6 +122,6 @@ export interface DutyArchive {
   summaryText: string;
 }
 
-export const APP_VERSION = '1.0.3';
-export const APP_BUILD = 4;
+export const APP_VERSION = '1.0.4';
+export const APP_BUILD = 5;
 

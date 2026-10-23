@@ -28,7 +28,10 @@ const DEFAULT_SETTINGS: UserSettings = {
   autoArchiveZip: true,
   handoverExternalUrl: '',
   handoverTarget: 'url',
-  subItemSpaceAutoSwitch: true
+  subItemSpaceAutoSwitch: true,
+  autoFoldUncompleted: false,
+  subItemCompleteMode: 'click',
+  themeColor: ''
 };
 
 export interface ConfigImportStats {
