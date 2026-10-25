@@ -574,6 +574,8 @@ export class DutyStorage {
 
     const newCurrentPostId = postIdMap.get(task.currentPostId) || (newPosts[0]?.id || '');
 
+    const settings = this.getSettings();
+
     // 完美保留所有配置条目与细项，重置打卡状态与照片
     const newItems: DutyItem[] = task.items.map((it, itIdx) => {
       const mappedPostId = postIdMap.get(it.postId) || (newPosts[0]?.id || '');
@@ -586,7 +588,7 @@ export class DutyStorage {
         completedAt: null,
         photos: [], // 照片已打包归档至 ZIP，新班次清空
         autoFold: it.autoFold !== undefined ? !!it.autoFold : true, // 完美保留完成后自动折叠配置，默认开启
-        isExpanded: true, // 新班次就绪初始展开
+        isExpanded: it.requirePhoto ? true : (settings.autoFoldUncompleted ? false : true), // 遵循全局自动折叠配置（排除需拍照项）
         subItems: (it.subItems || []).map((s, sIdx) => ({
           ...s,
           id: `sub_${newItemId}_${sIdx}`,

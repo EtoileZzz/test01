@@ -5,9 +5,10 @@
 export interface InspectionPhoto {
   id: string;
   itemId: string;
-  dataUrl: string; // Base64 或 Blob URL
+  dataUrl: string; // 缩略图 Base64 或 Blob URL
   fileName: string;
   timestamp: string;
+  fullUri?: string; // 手机相册「Pictures/oxherd」原图持久化路径/URI
   note?: string;
 }
 
@@ -122,6 +123,6 @@ export interface DutyArchive {
   summaryText: string;
 }
 
-export const APP_VERSION = '1.0.5';
-export const APP_BUILD = 6;
+export const APP_VERSION = '1.0.6';
+export const APP_BUILD = 7;
 

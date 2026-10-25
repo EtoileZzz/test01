@@ -153,44 +153,7 @@ class OxherdApp {
     // 4. 长按 1 秒蓄力交班确认（用户特别指定：1 秒）
     this.bindHandoverHold();
 
-    // 5. 拍照选择器文件捕获
-    const fileInput = document.getElementById('camera-file-input') as HTMLInputElement;
-    fileInput?.addEventListener('change', () => {
-      const file = fileInput.files?.[0];
-      if (!file || !this.pendingPhotoItemId || !this.currentTask) return;
-
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const dataUrl = uploadEvent.target?.result as string;
-        if (!dataUrl) return;
-
-        const targetItem = this.currentTask?.items.find(i => i.id === this.pendingPhotoItemId);
-        if (targetItem) {
-          const nowStr = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-          const post = this.currentTask?.posts.find(p => p.id === targetItem.postId);
-          const safePost = (post?.name || '岗位').split(' ')[0];
-          const fileName = `${safePost}_${targetItem.title.substring(0, 10)}_${Date.now()}.jpg`;
-
-          const photo: InspectionPhoto = {
-            id: 'ph_' + Date.now(),
-            itemId: targetItem.id,
-            dataUrl,
-            fileName,
-            timestamp: nowStr
-          };
-
-          targetItem.photos.push(photo);
-          DutyStorage.saveTask(this.currentTask!);
-          NativeBridgeService.triggerLightHaptic();
-          this.render();
-        }
-        fileInput.value = '';
-        this.pendingPhotoItemId = null;
-      };
-      reader.readAsDataURL(file);
-    });
-
-    // 6. 撤销按钮交互（修复 touch / pointerdown 支持）
+    // 5. 撤销按钮交互（修复 touch / pointerdown 支持）
     const undoBtn = document.getElementById('undo-action-btn');
     const onUndoTrigger = (e: Event) => {
       e.preventDefault();
@@ -754,13 +717,61 @@ class OxherdApp {
         }
       });
 
-      // 拍照按钮
+      // 拍照按钮：秒开原生相机取景，无损存入 Pictures/oxherd 手机专属相册
       const addPhotoBtn = cardEl.querySelector('.add-photo-btn') as HTMLElement;
-      addPhotoBtn?.addEventListener('click', (e) => {
+      addPhotoBtn?.addEventListener('click', async (e) => {
         e.stopPropagation();
-        this.pendingPhotoItemId = item.id;
-        const fileInput = document.getElementById('camera-file-input') as HTMLInputElement;
-        fileInput?.click();
+        NativeBridgeService.triggerLightHaptic();
+        try {
+          const post = this.currentTask?.posts.find(p => p.id === item.postId);
+          const postName = post ? post.name : '岗位';
+          const result = await NativeBridgeService.capturePhoto(postName, item.title);
+          if (result && result.thumbnailDataUrl) {
+            const photo: InspectionPhoto = {
+              id: 'ph_' + Date.now(),
+              itemId: item.id,
+              dataUrl: result.thumbnailDataUrl,
+              fileName: result.fileName,
+              timestamp: result.timestamp,
+              fullUri: result.fullUri
+            };
+            item.photos.push(photo);
+            DutyStorage.saveTask(this.currentTask!);
+            NativeBridgeService.triggerCompleteHaptic();
+            this.render();
+          }
+        } catch (err: any) {
+          if (err && err !== '拍照已取消' && !String(err).includes('取消')) {
+            alert('拍照提示: ' + (err.message || err));
+          }
+        }
+      });
+
+      // 照片缩略图交互：点击图片全屏高清放大查看，点击小角标快速删除
+      cardEl.querySelectorAll('.photo-thumb-box').forEach(box => {
+        const phId = box.querySelector('.photo-del-badge')?.getAttribute('data-photo-id');
+        const ph = item.photos.find(p => p.id === phId);
+        if (!ph) return;
+
+        // 点击缩略图放大查看
+        box.querySelector('img')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          NativeBridgeService.triggerLightHaptic();
+          ModalManager.openPhotoLightboxModal(ph, () => {
+            item.photos = item.photos.filter(p => p.id !== phId);
+            DutyStorage.saveTask(task);
+            this.render();
+          });
+        });
+
+        // 点击右上角 ✕ 快速删除凭证
+        box.querySelector('.photo-del-badge')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          item.photos = item.photos.filter(p => p.id !== phId);
+          DutyStorage.saveTask(task);
+          NativeBridgeService.triggerLightHaptic();
+          this.render();
+        });
       });
 
       // 复制凭证信息
@@ -769,21 +780,9 @@ class OxherdApp {
           e.stopPropagation();
           const photoSummary = item.photos.map(p => `【${item.title}】凭证：${p.fileName} (拍摄于 ${p.timestamp})`).join('\n');
           navigator.clipboard.writeText(photoSummary).then(() => {
-            alert('已复制照片凭证信息！');
+            alert('已复制照片凭证信息！\n超清原图已存入手机相册「oxherd」专辑');
             NativeBridgeService.triggerLightHaptic();
           });
-        });
-      });
-
-      // 删除照片
-      cardEl.querySelectorAll('.photo-del-badge').forEach(delBtn => {
-        delBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const phId = delBtn.getAttribute('data-photo-id');
-          item.photos = item.photos.filter(p => p.id !== phId);
-          DutyStorage.saveTask(task);
-          NativeBridgeService.triggerLightHaptic();
-          this.render();
         });
       });
     });
@@ -803,10 +802,12 @@ class OxherdApp {
           const isActive = p.id === currentPost?.id;
           const postItems = task.items.filter(i => i.postId === p.id);
           const doneCount = postItems.filter(i => i.isCompleted).length;
+          const pendingCount = postItems.length - doneCount;
+          const isAllDone = postItems.length > 0 && pendingCount === 0;
           return `
             <div class="post-nav-pill ${isActive ? 'active' : ''}" data-nav-post-id="${p.id}">
               <span>${p.name}</span>
-              <span style="font-size:0.6875rem; opacity:0.85;">(${doneCount}/${postItems.length})</span>
+              <span class="post-pill-badge ${isAllDone ? 'all-done' : (pendingCount > 0 ? 'has-pending' : '')}">${isAllDone ? '✓' : pendingCount}</span>
             </div>
           `;
         })
@@ -857,10 +858,16 @@ class OxherdApp {
     const settings = DutyStorage.getSettings();
     const isDone = item.isCompleted;
 
-    // 全局设置：未完成条目自动折叠以简化排布（排除必须拍照的项目）
-    let isExpanded = item.isExpanded !== false;
-    if (!isDone && settings.autoFoldUncompleted && !item.requirePhoto && item.isExpanded === undefined) {
-      isExpanded = false;
+    // 全局设置：未完成条目自动折叠以简化排布（必须拍照的项目严格排除在外，始终展开突出拍照区）
+    let isExpanded: boolean;
+    if (item.requirePhoto) {
+      isExpanded = true;
+    } else if (!isDone && settings.autoFoldUncompleted) {
+      isExpanded = item.isExpanded === true;
+    } else if (isDone && item.autoFold !== false) {
+      isExpanded = item.isExpanded === true;
+    } else {
+      isExpanded = item.isExpanded !== false;
     }
 
     const isAutoFolded = (isDone && item.autoFold !== false && !isExpanded) ||
@@ -946,7 +953,7 @@ class OxherdApp {
     `;
 
     return `
-      <div class="duty-item-card ${isDone ? 'completed-card' : ''} ${!isExpanded ? 'is-folded' : ''}" data-item-card-id="${item.id}">
+      <div class="duty-item-card ${isDone ? 'completed-card' : ''} ${!isExpanded ? 'is-folded' : ''} ${item.requirePhoto ? 'photo-required-card' : ''}" data-item-card-id="${item.id}">
         <!-- 左右双向滑动显露层 (仅未完成条目渲染) -->
         ${
           !isDone

@@ -28,6 +28,16 @@ export interface OxherdNativePlugin {
   setStatusBarTheme(options: { isLight: boolean }): Promise<void>;
   backupData(options: { key: string; value: string }): Promise<void>;
   restoreData(options: { key: string }): Promise<{ value: string | null }>;
+  capturePhoto(options: {
+    postName: string;
+    itemTitle: string;
+  }): Promise<{
+    success: boolean;
+    fileName: string;
+    thumbnailDataUrl: string;
+    fullUri: string;
+    timestamp: string;
+  }>;
 }
 
 const OxherdNative = registerPlugin<OxherdNativePlugin>('OxherdNative');
@@ -322,5 +332,47 @@ export class NativeBridgeService {
     } catch (e) {
       console.warn('Web Audio 播放失败', e);
     }
+  }
+
+  /**
+   * 原生秒开系统相机拍摄，并将超清原图直接保存到手机系统相册专属目录「Pictures/oxherd」
+   * 返回轻量级高清缩略图供前端渲染，彻底解决 DOM 内存溢出或 localStorage 超限崩溃
+   */
+  static async capturePhoto(postName: string, itemTitle: string): Promise<{
+    fileName: string;
+    thumbnailDataUrl: string;
+    fullUri: string;
+    timestamp: string;
+  }> {
+    if (this.isNative()) {
+      return await OxherdNative.capturePhoto({ postName, itemTitle });
+    }
+
+    // Web 浏览器环境兜底
+    return new Promise((resolve, reject) => {
+      const fileInput = document.getElementById('camera-file-input') as HTMLInputElement;
+      if (!fileInput) return reject('No file input found');
+      const onFileChange = () => {
+        fileInput.removeEventListener('change', onFileChange);
+        const file = fileInput.files?.[0];
+        if (!file) return reject('No file selected');
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const dataUrl = e.target?.result as string;
+          const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+          const safePost = postName.split(' ')[0] || '岗位';
+          const fileName = `${safePost}_${itemTitle.substring(0, 10)}_${Date.now()}.jpg`;
+          resolve({
+            fileName,
+            thumbnailDataUrl: dataUrl,
+            fullUri: dataUrl,
+            timestamp
+          });
+        };
+        reader.readAsDataURL(file);
+      };
+      fileInput.addEventListener('change', onFileChange);
+      fileInput.click();
+    });
   }
 }

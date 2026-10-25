@@ -1,6 +1,6 @@
 import { DutyStorage } from '../storage/db';
 import { NativeBridgeService } from '../services/nativeBridge';
-import { APP_VERSION, APP_BUILD, type DutyTask, type UserSettings, type DutyPost, type DutyItem } from '../models/types';
+import { APP_VERSION, APP_BUILD, type DutyTask, type UserSettings, type DutyPost, type DutyItem, type InspectionPhoto } from '../models/types';
 
 export class ModalManager {
   private static modalStack: Array<() => void> = [];
@@ -663,13 +663,13 @@ export class ModalManager {
           </div>
         </div>
 
-        <!-- 主题色定制：色相滑块 + 推荐磁贴 + 原生选色 -->
+        <!-- 主题色定制：色相滑块 + 亮度滑块 + 原生选色（去除预设色块） -->
         <div class="theme-palette-box">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
             <div style="display:flex; align-items:center; gap:8px;">
-              <div id="theme-color-preview-circle" style="width:22px; height:22px; border-radius:50%; background:var(--accent); border:2px solid white; box-shadow:0 0 0 1.5px var(--border-color); flex-shrink:0;"></div>
+              <div id="theme-color-preview-circle" style="width:24px; height:24px; border-radius:50%; background:var(--accent); border:2px solid white; box-shadow:0 0 0 1.5px var(--border-color); flex-shrink:0;"></div>
               <div>
-                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-main);">主题强调色定制</div>
+                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-main);">主题强调色调色板</div>
                 <div id="theme-color-hex-tag" style="font-size:0.6875rem; font-family:var(--font-mono); color:var(--text-muted);">${settings.themeColor || '默认系统强调色'}</div>
               </div>
             </div>
@@ -679,40 +679,27 @@ export class ModalManager {
                 <input type="color" id="native-color-input" value="${settings.themeColor || '#38bdf8'}" style="position:absolute; opacity:0; width:100%; height:100%; left:0; top:0; cursor:pointer;" />
               </label>
               <button type="button" class="icon-btn" id="reset-theme-color-btn" style="width:auto; height:28px; padding:0 8px; font-size:0.6875rem;">
-                重置
+                恢复默认
               </button>
             </div>
           </div>
 
           <!-- 彩虹色相滑块 -->
-          <div style="margin:4px 0 2px;">
-            <div style="font-size:0.6875rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">
-              🌈 连续色相微调滑条：
+          <div style="margin:4px 0 8px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.6875rem; color:var(--text-muted); margin-bottom:5px; font-weight:600;">
+              <span>🌈 色相 (Hue)</span>
+              <span id="theme-hue-val">200°</span>
             </div>
             <input type="range" id="theme-hue-slider" min="0" max="360" value="200" class="hue-range-slider" />
           </div>
 
-          <!-- 精选预设色块 -->
-          <div>
-            <div style="font-size:0.6875rem; color:var(--text-muted); margin-bottom:6px; font-weight:600;">✨ 精选巡更主题色：</div>
-            <div class="color-presets-row" id="theme-color-presets">
-              ${[
-                { name: '极光天蓝', hex: '#38BDF8' },
-                { name: '深海湛蓝', hex: '#0284C7' },
-                { name: '赛博青翠', hex: '#06B6D4' },
-                { name: '翡翠生机', hex: '#10B981' },
-                { name: '梦幻星紫', hex: '#8B5CF6' },
-                { name: '珊瑚粉红', hex: '#F43F5E' },
-                { name: '落日炽橙', hex: '#F97316' },
-                { name: '琥珀流金', hex: '#F59E0B' },
-                { name: '高级石墨', hex: '#64748B' }
-              ].map(p => `
-                <div class="color-preset-card ${settings.themeColor === p.hex ? 'active' : ''}" data-hex="${p.hex}">
-                  <span class="color-dot" style="background:${p.hex};"></span>
-                  <span class="color-name">${p.name}</span>
-                </div>
-              `).join('')}
+          <!-- 明度/亮度滑块 -->
+          <div style="margin:2px 0;">
+            <div style="display:flex; justify-content:space-between; font-size:0.6875rem; color:var(--text-muted); margin-bottom:5px; font-weight:600;">
+              <span>☀️ 亮度 (Lightness)</span>
+              <span id="theme-lightness-val">54%</span>
             </div>
+            <input type="range" id="theme-lightness-slider" min="20" max="80" value="54" class="lightness-range-slider" />
           </div>
         </div>
       </div>
@@ -942,13 +929,18 @@ export class ModalManager {
         alert('值班填报链接已保存！');
       });
 
-      // 🎨 主题色定制（色相滑条 + 精选磁贴 + 原生调色器）
+      // 🎨 主题色定制（色相滑条 + 亮度滑条 + 原生调色器）
       const hexTag = card.querySelector('#theme-color-hex-tag') as HTMLElement;
       const previewCircle = card.querySelector('#theme-color-preview-circle') as HTMLElement;
       const resetColorBtn = card.querySelector('#reset-theme-color-btn') as HTMLElement;
       const hueSlider = card.querySelector('#theme-hue-slider') as HTMLInputElement;
+      const lightnessSlider = card.querySelector('#theme-lightness-slider') as HTMLInputElement;
+      const hueValText = card.querySelector('#theme-hue-val') as HTMLElement;
+      const lightnessValText = card.querySelector('#theme-lightness-val') as HTMLElement;
       const nativeColorInput = card.querySelector('#native-color-input') as HTMLInputElement;
-      const presetCards = card.querySelectorAll('#theme-color-presets .color-preset-card');
+
+      let currentHue = 200;
+      let currentLightness = 54;
 
       const hslToHex = (h: number, s: number, l: number): string => {
         l /= 100;
@@ -961,15 +953,18 @@ export class ModalManager {
         return `#${f(0)}${f(8)}${f(4)}`;
       };
 
+      const updateLightnessTrack = (h: number) => {
+        if (lightnessSlider) {
+          lightnessSlider.style.background = `linear-gradient(to right, hsl(${h}, 85%, 20%) 0%, hsl(${h}, 85%, 50%) 50%, hsl(${h}, 85%, 80%) 100%)`;
+        }
+      };
+
       const applyThemeColor = (colorHex: string) => {
         settings.themeColor = colorHex;
         DutyStorage.saveSettings({ themeColor: colorHex });
         if (hexTag) hexTag.textContent = colorHex || '默认系统强调色';
         if (previewCircle) previewCircle.style.background = colorHex || 'var(--accent)';
         if (nativeColorInput && colorHex) nativeColorInput.value = colorHex;
-        presetCards.forEach(c => {
-          c.classList.toggle('active', c.getAttribute('data-hex')?.toLowerCase() === colorHex.toLowerCase());
-        });
 
         if (colorHex) {
           document.documentElement.style.setProperty('--accent', colorHex);
@@ -989,11 +984,22 @@ export class ModalManager {
         onSettingsChanged();
       };
 
-      // 色相滑条连续微调
-      hueSlider?.addEventListener('input', () => {
-        const h = parseInt(hueSlider.value, 10);
-        const hex = hslToHex(h, 85, 54);
+      const syncFromHsl = () => {
+        const hex = hslToHex(currentHue, 85, currentLightness);
+        if (hueValText) hueValText.textContent = `${currentHue}°`;
+        if (lightnessValText) lightnessValText.textContent = `${currentLightness}%`;
+        updateLightnessTrack(currentHue);
         applyThemeColor(hex);
+      };
+
+      hueSlider?.addEventListener('input', () => {
+        currentHue = parseInt(hueSlider.value, 10);
+        syncFromHsl();
+      });
+
+      lightnessSlider?.addEventListener('input', () => {
+        currentLightness = parseInt(lightnessSlider.value, 10);
+        syncFromHsl();
       });
 
       // 系统原生取色器
@@ -1001,19 +1007,15 @@ export class ModalManager {
         applyThemeColor(nativeColorInput.value);
       });
 
-      // 预设主题色卡片点击
-      presetCards.forEach(c => {
-        c.addEventListener('click', () => {
-          const hex = c.getAttribute('data-hex');
-          if (hex) {
-            applyThemeColor(hex);
-            NativeBridgeService.triggerLightHaptic();
-          }
-        });
-      });
-
       // 恢复默认主题色
       resetColorBtn?.addEventListener('click', () => {
+        currentHue = 200;
+        currentLightness = 54;
+        if (hueSlider) hueSlider.value = '200';
+        if (lightnessSlider) lightnessSlider.value = '54';
+        if (hueValText) hueValText.textContent = '200°';
+        if (lightnessValText) lightnessValText.textContent = '54%';
+        updateLightnessTrack(200);
         applyThemeColor('');
         NativeBridgeService.triggerLightHaptic();
       });
@@ -1429,10 +1431,7 @@ export class ModalManager {
         </div>
       </div>
 
-      <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
-        <button class="icon-btn" id="copy-handover-report-btn" style="width:100%; height:42px; font-weight:600; font-size:0.875rem; background:var(--accent-light); color:var(--accent); border:1px solid var(--accent); gap:6px;">
-          📋 一键复制微信/钉钉交班文字简报
-        </button>
+      <div style="margin-top:14px;">
         <button class="icon-btn" id="finish-reset-btn" style="width:100%; height:46px; font-weight:700; font-size:0.9375rem; background:var(--text-main); color:var(--bg-main); border:none; gap:6px;">
           🔄 归档并刷新，就绪下一次值班
         </button>
@@ -1440,49 +1439,45 @@ export class ModalManager {
     `;
 
     const close = this.openSheet('值班照片分类打包完成', contentHtml, (card) => {
-      const copyBtn = card.querySelector('#copy-handover-report-btn') as HTMLElement;
-      copyBtn?.addEventListener('click', async () => {
-        const todayStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const comp = archiveData.completedItemsCount ?? 0;
-        const tot = archiveData.totalItemsCount ?? comp;
-        const percent = tot > 0 ? Math.round((comp / tot) * 100) : 100;
-
-        const reportText = [
-          `【oxherd 巡更值班交班简报】`,
-          `📅 交班时间：${todayStr} ${timeStr}`,
-          `⏰ 值班班次：${archiveData.shiftName || '全天日常班'}`,
-          `🏢 巡检岗位：共 ${archiveData.postsCount} 个岗位`,
-          `✅ 巡查项核验：${comp}/${tot} 项完成 (${percent}%)`,
-          `📷 现场照片：${archiveData.totalPhotos} 张（已按岗位归类打包）`,
-          `📌 现场状态：巡检完毕，所有巡检记录及留痕凭证均已就绪。`
-        ].join('\n');
-
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            await navigator.clipboard.writeText(reportText);
-          } else {
-            const tempTa = document.createElement('textarea');
-            tempTa.value = reportText;
-            document.body.appendChild(tempTa);
-            tempTa.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempTa);
-          }
-          NativeBridgeService.triggerLightHaptic();
-          copyBtn.textContent = '✅ 已复制！可直接粘贴至微信/钉钉群';
-          copyBtn.style.background = 'var(--success-light)';
-          copyBtn.style.color = 'var(--success)';
-          copyBtn.style.borderColor = 'var(--success)';
-        } catch {
-          alert('简报内容：\n\n' + reportText);
-        }
-      });
-
       const resetBtn = card.querySelector('#finish-reset-btn') as HTMLElement;
       resetBtn?.addEventListener('click', () => {
         close();
         archiveData.onResetAndRestart();
+      });
+    });
+  }
+
+  // ── 照片全屏高清大图查看模态框 ────────────────────────────────
+  static openPhotoLightboxModal(photo: InspectionPhoto, onDelete?: () => void): void {
+    const contentHtml = `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:10px; padding:6px 0;">
+        <div style="width:100%; max-height:60vh; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:var(--radius-md); background:#000;">
+          <img src="${photo.dataUrl}" alt="${photo.fileName}" style="max-width:100%; max-height:60vh; object-fit:contain; display:block;" />
+        </div>
+        <div style="width:100%; font-size:0.75rem; color:var(--text-muted); line-height:1.6; padding:0 4px;">
+          <div style="font-weight:700; color:var(--text-main); word-break:break-all;">${photo.fileName}</div>
+          <div>拍摄时间：${photo.timestamp}</div>
+          <div style="color:var(--accent); font-weight:600; margin-top:2px;">📁 超清原画已无损直存手机相册「Pictures/oxherd」专辑</div>
+        </div>
+        ${
+          onDelete
+            ? `
+          <button class="icon-btn delete-photo-btn" style="width:100%; height:38px; color:var(--danger); border-color:var(--danger); background:rgba(239,68,68,0.08); font-weight:600; margin-top:4px;">
+            🗑️ 从本次巡更中移除此凭证
+          </button>
+        `
+            : ''
+        }
+      </div>
+    `;
+
+    const close = this.openSheet('现场巡检照片留痕', contentHtml, (card) => {
+      card.querySelector('.delete-photo-btn')?.addEventListener('click', () => {
+        if (confirm('确定要移除此照片留痕凭证吗？（相册内原图仍将安全保留）')) {
+          close();
+          NativeBridgeService.triggerLightHaptic();
+          if (onDelete) onDelete();
+        }
       });
     });
   }
